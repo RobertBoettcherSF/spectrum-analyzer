@@ -12,12 +12,13 @@ package body Analysis is
    Hop    : constant Positive := STFT_N / 4;
    FMax   : constant DSP.Real := 1_000.0;
 
-   Signal   : DSP.Real_Array (0 .. Demo_Signal.Sample_Count - 1);
+   Signal   : DSP.Real_Array (0 .. Max_Samples - 1);
    Win_F    : DSP.Real_Array (0 .. FFT_N - 1);
    Win_S    : DSP.Real_Array (0 .. STFT_N - 1);
    Power    : DSP.Real_Array (0 .. FFT_N / 2);
    Spec     : DSP.Real_Array (0 .. FFT_N / 2);
    Mag_Buf  : DSP.Real_Array (0 .. FFT_N / 2);
+   Tone_Buf : DSP.Real_Array (0 .. FFT_N - 1);
    WF       : DSP.STFT.Image;
    Track    : DSP.STFT.Level_List;
    TL_T     : DSP.Real_Array (0 .. DSP.STFT.Max_Rows - 1);
@@ -46,18 +47,73 @@ package body Analysis is
    Cols_N     : Natural := 0;
    Frames_N   : Natural := 0;
    Edge_N     : Natural := 0;
+   Rate_V     : Positive := Demo_Signal.Rate;
+   Count_V    : Positive := Demo_Signal.Sample_Count;
+   Carrier_V  : DSP.Real := Demo_Signal.Carrier_Hz;
+   FMax_V     : DSP.Real := FMax;
+   Source_Buf : String (1 .. 160) := (others => ' ');
+   Source_N   : Natural := 0;
+
+   --  Fixed buffers only. A function that returns String, or "&",
+   --  would use the secondary stack, and this runtime's allocator is
+   --  not linked into the WebAssembly module.
+   procedure Set_Source (Text : String) is
+   begin
+      Source_N := 0;
+      for I in Text'Range loop
+         exit when Source_N >= Source_Buf'Length;
+         Source_N := Source_N + 1;
+         Source_Buf (Source_N) := Text (I);
+      end loop;
+   end Set_Source;
+
+   procedure Append_Char (C : Character) is
+   begin
+      if Source_N < Source_Buf'Length then
+         Source_N := Source_N + 1;
+         Source_Buf (Source_N) := C;
+      end if;
+   end Append_Char;
+
+   procedure Append (Text : String) is
+   begin
+      for I in Text'Range loop
+         Append_Char (Text (I));
+      end loop;
+   end Append;
+
+   procedure Append_Digits (N : Natural) is
+      Buf : String (1 .. 10) := (others => '0');
+      V   : Natural := N;
+      P   : Natural := Buf'Last;
+   begin
+      if N = 0 then
+         Append_Char ('0');
+         return;
+      end if;
+      while V > 0 and then P >= Buf'First loop
+         Buf (P) := Character'Val (Character'Pos ('0') + V mod 10);
+         V := V / 10;
+         if V > 0 then
+            P := P - 1;
+         end if;
+      end loop;
+      for I in P .. Buf'Last loop
+         Append_Char (Buf (I));
+      end loop;
+   end Append_Digits;
 
    procedure Check_Tone is
       Freq : constant DSP.Real :=
         32.0 * DSP.Real (Demo_Signal.Rate) / DSP.Real (FFT_N);
    begin
-      for I in 0 .. FFT_N - 1 loop
-         Signal (I) := DSP.Sin
+      for I in Tone_Buf'Range loop
+         Tone_Buf (I) := DSP.Sin
            (2.0 * Ada.Numerics.Pi * Freq * DSP.Real (I)
             / DSP.Real (Demo_Signal.Rate));
       end loop;
       DSP.Window.Hann (Win_F);
-      DSP.Magnitude.Frame (Signal, 0, Win_F, Mag_Buf);
+      DSP.Magnitude.Frame (Tone_Buf, 0, Win_F, Mag_Buf);
       Tone_P := Mag_Buf (32);
       Tone_S := Mag_Buf (31);
       Tone_F := Mag_Buf (64);
@@ -67,18 +123,27 @@ package body Analysis is
         and then abs (Tone_F) < 1.0E-2;
    end Check_Tone;
 
-   procedure Run is
+   procedure Compute
+     (Rate      : Positive;
+      Count     : Positive;
+      Carrier   : DSP.Real;
+      F_Display : DSP.Real)
+   is
       Half  : constant Natural := FFT_N / 2;
       Pos   : Natural := 0;
       Acc   : Natural := 0;
       Sum   : DSP.Real := 0.0;
       K_Max : Natural;
       Found : Natural;
+      View  : DSP.Real_Array renames Signal (0 .. Count - 1);
    begin
       Ready_Flag := False;
+      Rate_V := Rate;
+      Count_V := Count;
+      Carrier_V := Carrier;
+      FMax_V := F_Display;
       Check_Tone;
 
-      Demo_Signal.Generate (Signal);
       DSP.Window.Hann (Win_F);
       DSP.Window.Hann (Win_S);
 
@@ -86,16 +151,16 @@ package body Analysis is
          Power (K) := 0.0;
       end loop;
 
-      Df_V := DSP.Real (Demo_Signal.Rate) / DSP.Real (FFT_N);
-      K_Max := Natural'Min (Half, Natural (FMax / Df_V));
+      Df_V := DSP.Real (Rate) / DSP.Real (FFT_N);
+      K_Max := Natural'Min (Half, Natural (F_Display / Df_V));
 
       loop
-         DSP.Magnitude.Frame (Signal, Pos, Win_F, Mag_Buf);
+         DSP.Magnitude.Frame (View, Pos, Win_F, Mag_Buf);
          for K in Power'Range loop
             Power (K) := Power (K) + Mag_Buf (K) * Mag_Buf (K);
          end loop;
          Acc := Acc + 1;
-         exit when Pos + FFT_N >= Signal'Length;
+         exit when Pos + FFT_N >= View'Length;
          Pos := Pos + Half;
       end loop;
 
@@ -114,16 +179,16 @@ package body Analysis is
       Mark_N := Found;
       for I in Marks'Range loop
          Mark_Car (I) := I <= Found
-           and then abs (Marks (I).F - Demo_Signal.Carrier_Hz) < 3.0 * Df_V;
+           and then abs (Marks (I).F - Carrier) < 3.0 * Df_V;
       end loop;
 
       DSP.STFT.Build
-        (S           => Signal,
+        (S           => View,
          Win         => Win_S,
          Hop         => Hop,
-         Rate        => Demo_Signal.Rate,
-         F_Max       => FMax,
-         Carrier_Hz  => Demo_Signal.Carrier_Hz,
+         Rate        => Rate,
+         F_Max       => F_Display,
+         Carrier_Hz  => Carrier,
          WF          => WF,
          Rows        => Rows_N,
          Cols        => Cols_N,
@@ -136,7 +201,7 @@ package body Analysis is
          DSP.Carrier.Detect
            (Level     => Track (0 .. Frames_N - 1),
             Hop       => Hop,
-            Rate      => Demo_Signal.Rate,
+            Rate      => Rate,
             Window_N  => STFT_N,
             Threshold => Thr_V,
             Lo        => Lo_V,
@@ -144,8 +209,7 @@ package body Analysis is
             Edges     => Edges_V,
             Count     => Edge_N);
          for Fr in 0 .. Frames_N - 1 loop
-            TL_T (Fr) := DSP.Carrier.Frame_Time
-              (Fr, Hop, Demo_Signal.Rate, STFT_N);
+            TL_T (Fr) := DSP.Carrier.Frame_Time (Fr, Hop, Rate, STFT_N);
             TL_DB (Fr) := Track (Fr);
             TL_On (Fr) := Track (Fr) > Thr_V;
          end loop;
@@ -157,7 +221,43 @@ package body Analysis is
       end if;
 
       Ready_Flag := True;
+   end Compute;
+
+   procedure Run is
+   begin
+      Demo_Signal.Generate (Signal (0 .. Demo_Signal.Sample_Count - 1));
+      Set_Source (Demo_Signal.Description);
+      Compute
+        (Demo_Signal.Rate, Demo_Signal.Sample_Count,
+         Demo_Signal.Carrier_Hz, FMax);
    end Run;
+
+   procedure Put_PCM (Index : Natural; Amplitude : DSP.Real) is
+   begin
+      if Index < Max_Samples then
+         Signal (Index) := Amplitude;
+      end if;
+   end Put_PCM;
+
+   procedure Run_PCM
+     (Rate       : Positive;
+      Count      : Positive;
+      Carrier_Hz : DSP.Real)
+   is
+      Span : DSP.Real;
+   begin
+      if Count > Max_Samples then
+         return;
+      end if;
+      Span := DSP.Real'Min (PCM_F_Max, DSP.Real (Rate) / 2.0);
+      Source_N := 0;
+      Append ("PCM: 16-bit mono, ");
+      Append_Digits (Rate);
+      Append (" Hz, ");
+      Append_Digits (Count);
+      Append (" samples");
+      Compute (Rate, Count, Carrier_Hz, Span);
+   end Run_PCM;
 
    function Ready return Boolean is (Ready_Flag);
    function Tone_OK return Boolean is (Tone_Flag);
@@ -165,7 +265,7 @@ package body Analysis is
    function Tone_Side return DSP.Real is (Tone_S);
    function Tone_Far return DSP.Real is (Tone_F);
 
-   function Sample_Rate return Positive is (Demo_Signal.Rate);
+   function Sample_Rate return Positive is (Rate_V);
    function Fft_Size return Positive is (FFT_N);
    function Stft_Size return Positive is (STFT_N);
    function Hop_Size return Positive is (Hop);
@@ -173,11 +273,16 @@ package body Analysis is
    function Spec_Bins return Natural is (Bins_N);
    function Df return DSP.Real is (Df_V);
    function Sdf return DSP.Real is (Sdf_V);
-   function F_Max return DSP.Real is (FMax);
-   function Carrier_Hz return DSP.Real is (Demo_Signal.Carrier_Hz);
+   function F_Max return DSP.Real is (FMax_V);
+   function Carrier_Hz return DSP.Real is (Carrier_V);
    function Carrier_Bin return Natural is (Bin_V);
    function Duration return DSP.Real is
-     (DSP.Real (Demo_Signal.Sample_Count) / DSP.Real (Demo_Signal.Rate));
+     (DSP.Real (Count_V) / DSP.Real (Rate_V));
+
+   function Source_Length return Natural is (Source_N);
+
+   function Source_Character (Index : Positive) return Character is
+     (if Index <= Source_N then Source_Buf (Index) else ' ');
    function Floor_DB return DSP.Real is (Floor_V);
    function Threshold_DB return DSP.Real is (Thr_V);
    function Lo_DB return DSP.Real is (Lo_V);

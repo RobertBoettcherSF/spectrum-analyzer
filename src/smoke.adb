@@ -1,5 +1,7 @@
 with Ada.Command_Line;
 with Ada.Long_Float_Text_IO;
+with Ada.Numerics;
+with Ada.Numerics.Long_Elementary_Functions;
 with Ada.Strings.Fixed;
 with Ada.Text_IO;
 with Spectrum_API;
@@ -162,6 +164,81 @@ begin
    Need (Spectrum_API.Thr_DB10 in -800 .. -450, "threshold between off and on");
    Need (Spectrum_API.Hi_DB10 > Spectrum_API.Thr_DB10, "on level above threshold");
    Need (Spectrum_API.Lo_DB10 < Spectrum_API.Thr_DB10, "off level below threshold");
+
+   declare
+      use Ada.Numerics.Long_Elementary_Functions;
+
+      function U (Hz : Long_Float) return Integer is
+        (Integer (Long_Float'Rounding (Hz * 1.0E6)));
+
+      procedure Load_Tone is
+      begin
+         for I in 0 .. 15_999 loop
+            declare
+               V : constant Long_Float :=
+                 0.5 * Sin (2.0 * Ada.Numerics.Pi * 1_000.0
+                            * Long_Float (I) / 16_000.0);
+            begin
+               Spectrum_API.Store
+                 (I, Integer (Long_Float'Rounding (V * 32_767.0)));
+            end;
+         end loop;
+      end Load_Tone;
+
+      procedure Count_Carriers (Expect : Natural; What : String) is
+         Hits : Natural := 0;
+      begin
+         for I in 1 .. Spectrum_API.Markers loop
+            if Spectrum_API.Marker_Carrier (I) = 1 then
+               Hits := Hits + 1;
+            end if;
+         end loop;
+         Need (Hits = Expect, What);
+      end Count_Carriers;
+   begin
+      Need (Spectrum_API.Analyze_PCM (1_000, 16_000, U (216.67))
+              = Spectrum_API.PCM_Bad_Rate,
+            "reject sample rate below 8 kHz");
+      Need (Spectrum_API.Rate = 8_000, "rejected PCM leaves the demo");
+      Need (Spectrum_API.Analyze_PCM (16_000, 100, U (216.67))
+              = Spectrum_API.PCM_Too_Short,
+            "reject a short buffer");
+      Need (Spectrum_API.Analyze_PCM
+              (16_000, Spectrum_API.PCM_Cap + 1, U (216.67))
+              = Spectrum_API.PCM_Too_Long,
+            "reject a buffer past the cap");
+      Need (Spectrum_API.Analyze_PCM (16_000, 16_000, 0)
+              = Spectrum_API.PCM_Bad_Carrier,
+            "reject a zero carrier");
+      Need (Spectrum_API.Markers = 6, "demo markers still in place");
+
+      Load_Tone;
+      Put_Line ("pcm 1 kHz");
+      Need (Spectrum_API.Analyze_PCM (16_000, 16_000, U (216.67))
+              = Spectrum_API.PCM_OK,
+            "analyze 1 kHz tone");
+      Need (Spectrum_API.Rate = 16_000, "pcm rate 16000");
+      Need (Spectrum_API.Duration_US = 1_000_000, "pcm duration 1 s");
+      Need (Peak (1_000.0, 0.5, -80, -40), "1 kHz peak near -6 dBFS");
+      Need (Spectrum_API.Tone_OK = 1, "self-test still passes on pcm");
+      Count_Carriers (0, "216.67 Hz is not a peak of the tone");
+      for I in 1 .. Spectrum_API.Markers loop
+         Put ("  M" & T (I) & " ");
+         Put_Fixed (Long_Float (Spectrum_API.Marker_UHz (I)) / 1.0E6, 2);
+         Put (" Hz ");
+         Put_Fixed (Long_Float (Spectrum_API.Marker_DB10 (I)) / 10.0, 1);
+         New_Line;
+      end loop;
+
+      Need (Spectrum_API.Analyze_PCM (16_000, 16_000, U (1_000.0))
+              = Spectrum_API.PCM_OK,
+            "reanalyze with carrier at 1 kHz");
+      Need (Peak (1_000.0, 0.5, -80, -40), "1 kHz peak still present");
+      Count_Carriers (1, "exactly one carrier marker on the tone");
+      Need (Spectrum_API.Edges = 0, "steady tone has no on/off edges");
+      Need (Spectrum_API.Hi_DB10 in -80 .. -40, "carrier level near -6 dBFS");
+      Need (Spectrum_API.Carrier_UHz = U (1_000.0), "reported carrier is 1000 Hz");
+   end;
 
    if Failed then
       Ada.Command_Line.Set_Exit_Status (Ada.Command_Line.Failure);

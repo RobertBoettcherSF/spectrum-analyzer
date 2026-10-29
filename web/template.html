@@ -72,6 +72,57 @@
   #cur { color: #6d6; margin: 4px 4px 0; }
   #cur:empty { display: none; }
   #edges { color: var(--yellow); }
+  .bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: stretch;
+    margin: 0 8px 8px;
+  }
+  .drop {
+    position: relative;
+    flex: 1 1 280px;
+    border: 1px dashed #4a6;
+    background: #0c140c;
+    color: #9c9;
+    padding: 10px 12px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
+  .drop.hot { border-color: var(--yellow); color: var(--yellow); }
+  .drop input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+    font-size: 0;
+  }
+  button, .hz input {
+    font: inherit;
+    background: #141c14;
+    color: var(--yellow);
+    border: 1px solid #4a6;
+    padding: 8px 12px;
+  }
+  button { cursor: pointer; }
+  button:disabled { color: #575; border-color: #343; cursor: default; }
+  .hz {
+    color: #8c8;
+    font-size: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    justify-content: center;
+  }
+  .hz input { width: 7.2em; }
+  .meta {
+    color: #9c9;
+    font-size: 12px;
+    margin: 0 8px 12px;
+    min-height: 1.2em;
+  }
+  .meta:empty { display: none; }
   .foot {
     color: #566;
     font-size: 11px;
@@ -82,6 +133,7 @@
     body { padding: 10px 6px 20px; }
     h1 { font-size: 16px; }
     .scr { margin: 0 4px 16px; box-shadow: 0 0 0 4px #222, inset 0 0 20px #000; }
+    .bar, .meta { margin-left: 4px; margin-right: 4px; }
     #sp { height: 300px; }
     #wf { height: 200px; }
     #tl { height: 168px; }
@@ -94,6 +146,20 @@
   <h1>ADA SPECTRUM ANALYZER</h1>
   <div class="info" id="info">Loading the Ada WebAssembly module…</div>
   <div id="err" hidden></div>
+  <div class="bar">
+    <div class="drop" id="drop">
+      <span>Drop a 16-bit PCM .wav here, or click to choose. Paste a file too.</span>
+      <input id="file" type="file" accept=".wav,audio/wav,audio/x-wav,audio/wave"
+             aria-label="Choose a 16-bit PCM WAV file">
+    </div>
+    <label class="hz">CARRIER Hz
+      <input id="carrier" type="number" value="216.67" min="0.01" step="0.01"
+             aria-label="Carrier frequency in hertz">
+    </label>
+    <button type="button" id="run" disabled>Run analysis</button>
+    <button type="button" id="demo">Demo</button>
+  </div>
+  <div class="meta" id="meta"></div>
 
   <div class="scr">
     <h2>SPECTRUM (dBFS)</h2>
@@ -117,6 +183,7 @@
 </div>
 <script>
 "use strict";
+__WAV_PCM_JS__
 const WASM = "__WASM_BASE64__";
 
 const sp = document.getElementById("sp");
@@ -181,6 +248,13 @@ function mono(c, dpr, px) {
 
 let data = null;
 let specGeom = null;
+let ada = null;
+let pending = null;
+let shownFile = null;
+const runBtn = document.getElementById("run");
+const carrierInput = document.getElementById("carrier");
+const meta = document.getElementById("meta");
+const drop = document.getElementById("drop");
 
 function pull(ada) {
   const nsrc = ada.sa_source_len();
@@ -239,7 +313,9 @@ function pull(ada) {
 function paintInfo() {
   const rbw = (data.rbw / 1e6).toFixed(2);
   const car = hzText(data.carrier);
+  const head = shownFile ? "FILE: " + shownFile.name + "\n" : "";
   info.textContent =
+    head +
     "SRC: " + data.source + "\n" +
     "FS " + data.rate + " Hz | FFT " + data.fft + " Hann | RBW " + rbw +
     " Hz | AVG " + data.avg + " | STFT " + data.stft + "/hop " + data.hop +
@@ -259,7 +335,7 @@ function paintInfo() {
   edgesEl.textContent = el;
   foot.textContent =
     "Computed in Ada (Hann, radix-2 FFT, dBFS, STFT, parabolic peaks, carrier edges), " +
-    "compiled with AdaWebPack 24 to WebAssembly. JavaScript only draws. " +
+    "compiled with AdaWebPack 24 to WebAssembly. JavaScript only reads the WAV and draws. " +
     "FFT self-test peak " + (data.tone / 1e6).toFixed(6) + ".";
 }
 
@@ -467,19 +543,146 @@ sp.addEventListener("pointermove", e => {
 sp.addEventListener("pointerleave", () => { cur.textContent = ""; });
 addEventListener("resize", () => { if (data) drawAll(); });
 
-async function main() {
-  let ada;
+function showErr(msg) {
+  err.hidden = false;
+  err.textContent = String(msg);
+}
+
+function clearErr() {
+  err.hidden = true;
+  err.textContent = "";
+}
+
+function limits() {
+  return {
+    minSamples: ada.sa_pcm_min(),
+    maxSamples: ada.sa_pcm_cap(),
+    minRate: ada.sa_pcm_min_rate(),
+    maxRate: ada.sa_pcm_max_rate()
+  };
+}
+
+function pcmStatusText(code) {
+  switch (code) {
+    case 1: return "The sample rate is outside the range this analyzer accepts.";
+    case 2: return "This file is too short. It needs at least one full FFT frame.";
+    case 3: return "This file is too long for the analyzer.";
+    case 4: return "The carrier frequency is outside the range this file can track.";
+    default: return "The Ada analyzer rejected the samples (status " + code + ").";
+  }
+}
+
+async function takeFile(file) {
+  if (!file) return;
+  if (!ada) {
+    showErr("The Ada module is still loading.");
+    return;
+  }
+  let buf;
   try {
-    const compiled = await WebAssembly.instantiate(decodeB64(WASM));
-    ada = compiled.instance.exports;
+    buf = await file.arrayBuffer();
   } catch (e) {
-    fail("Could not instantiate the Ada module.\n" + e);
+    showErr("Could not read " + (file.name || "that file") + ".\n" + e);
     return;
   }
-  if (typeof ada.sa_analyze !== "function") {
-    fail("The module has no sa_analyze export.");
+  const parsed = parseWavPcm(buf, limits());
+  if (!parsed.ok) {
+    pending = null;
+    runBtn.disabled = true;
+    meta.textContent = "";
+    showErr(parsed.error);
     return;
   }
+  pending = {
+    name: file.name || "pasted.wav",
+    rate: parsed.rate,
+    frames: parsed.frames,
+    samples: parsed.samples,
+    mixed: parsed.mixed
+  };
+  const secs = (parsed.frames / parsed.rate).toFixed(2);
+  const kind = parsed.mixed ? "16-bit stereo, mixed to mono" : "16-bit mono";
+  meta.textContent =
+    "LOADED " + pending.name + " · " + parsed.rate + " Hz · " +
+    secs + " s · " + parsed.frames + " samples · " + kind;
+  runBtn.disabled = false;
+  clearErr();
+}
+
+function writePcm(samples) {
+  const ptr = ada.sa_pcm_ptr();
+  const cap = ada.sa_pcm_cap();
+  if (!ada.memory || ptr <= 0 || (ptr & 1) !== 0) {
+    throw new Error("The Ada PCM buffer is not available.");
+  }
+  if (samples.length > cap) {
+    throw new Error("The file is longer than the Ada buffer.");
+  }
+  new Int16Array(ada.memory.buffer, ptr, samples.length).set(samples);
+}
+
+function carrierChoice(rate) {
+  const hz = Number(carrierInput.value);
+  const capHz = ada.sa_pcm_fmax_uhz() / 1e6;
+  if (!Number.isFinite(hz) || hz <= 0 || hz >= capHz) {
+    return {
+      ok: false,
+      error: "Carrier must be greater than 0 and below " + capHz.toFixed(0) + " Hz."
+    };
+  }
+  if (hz >= rate / 2) {
+    return {
+      ok: false,
+      error: "Carrier " + hz + " Hz is at or above half the sample rate (" +
+        (rate / 2) + " Hz)."
+    };
+  }
+  return { ok: true, hz };
+}
+
+function finishRun(ms) {
+  data.ms = ms;
+  if (!data.toneOk) {
+    showErr("FFT self-test failed. Bin-centred Hann peak was " +
+      (data.tone / 1e6).toFixed(6) + " instead of 1.");
+  }
+  paintInfo();
+  drawAll();
+}
+
+async function runLoaded() {
+  if (!ada || !pending) return;
+  const car = carrierChoice(pending.rate);
+  if (!car.ok) {
+    showErr(car.error);
+    return;
+  }
+  clearErr();
+  info.textContent = "Running the radix-2 FFT, STFT and carrier tracker on " +
+    pending.name + "…";
+  await new Promise(r => setTimeout(r, 30));
+  try {
+    writePcm(pending.samples);
+    const t0 = performance.now();
+    const status = ada.sa_analyze_pcm(
+      pending.rate, pending.samples.length, Math.round(car.hz * 1e6));
+    const ms = performance.now() - t0;
+    if (status !== 0) {
+      showErr(pcmStatusText(status));
+      return;
+    }
+    data = pull(ada);
+    shownFile = pending;
+    finishRun(ms);
+  } catch (e) {
+    fail("The Ada analyzer trapped.\n" + e);
+  }
+}
+
+async function runDemo() {
+  if (!ada) return;
+  clearErr();
+  shownFile = null;
   info.textContent = "Running the radix-2 FFT, STFT and carrier tracker in Ada…";
   await new Promise(r => setTimeout(r, 30));
   try {
@@ -487,17 +690,79 @@ async function main() {
     ada.sa_analyze();
     const ms = performance.now() - t0;
     data = pull(ada);
-    data.ms = ms;
+    finishRun(ms);
   } catch (e) {
     fail("The Ada analyzer trapped.\n" + e);
+  }
+}
+
+document.getElementById("file").addEventListener("change", e => {
+  const f = e.target.files && e.target.files[0];
+  if (f) takeFile(f);
+  e.target.value = "";
+});
+runBtn.addEventListener("click", () => { runLoaded(); });
+document.getElementById("demo").addEventListener("click", () => { runDemo(); });
+
+let dragDepth = 0;
+addEventListener("dragenter", e => {
+  e.preventDefault();
+  dragDepth++;
+  drop.classList.add("hot");
+});
+addEventListener("dragleave", () => {
+  dragDepth--;
+  if (dragDepth <= 0) {
+    dragDepth = 0;
+    drop.classList.remove("hot");
+  }
+});
+addEventListener("dragover", e => { e.preventDefault(); });
+addEventListener("drop", e => {
+  e.preventDefault();
+  dragDepth = 0;
+  drop.classList.remove("hot");
+  const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+  if (f) takeFile(f);
+});
+addEventListener("paste", e => {
+  if (e.target && e.target.id === "carrier") return;
+  const cd = e.clipboardData;
+  if (!cd) return;
+  let file = cd.files && cd.files.length ? cd.files[0] : null;
+  if (!file && cd.items) {
+    for (const item of cd.items) {
+      if (item.kind === "file") {
+        file = item.getAsFile();
+        if (file) break;
+      }
+    }
+  }
+  if (!file) {
+    showErr("Paste a .wav file, or use the file picker.");
     return;
   }
-  if (!data.toneOk) {
-    fail("FFT self-test failed. Bin-centred Hann peak was " +
-      (data.tone / 1e6).toFixed(6) + " instead of 1.");
+  e.preventDefault();
+  takeFile(file);
+});
+
+async function main() {
+  try {
+    const compiled = await WebAssembly.instantiate(decodeB64(WASM));
+    ada = compiled.instance.exports;
+  } catch (e) {
+    fail("Could not instantiate the Ada module.\n" + e);
+    return;
   }
-  paintInfo();
-  drawAll();
+  if (typeof ada.sa_analyze !== "function" || typeof ada.sa_analyze_pcm !== "function") {
+    fail("The module is missing sa_analyze or sa_analyze_pcm.");
+    return;
+  }
+  if (!ada.memory) {
+    fail("The module did not export its memory, so a WAV cannot be loaded.");
+    return;
+  }
+  await runDemo();
 }
 main();
 </script>

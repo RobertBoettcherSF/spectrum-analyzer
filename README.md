@@ -7,7 +7,14 @@ the markers and the carrier edges, then paints them.
 
 The demonstration signal is 10 seconds at 8 kHz: 50 Hz mains, harmonics,
 a little noise, and a 216.67 Hz ripple-control telegram (`1011001110100101`).
-There is no WAV upload in this version.
+A 16-bit PCM `.wav` can be dropped, chosen, or pasted. The page checks the
+header, mixes stereo to mono, and copies the samples into the module.
+Float, compressed, and other bit depths are refused on the page, as are
+files shorter than one 4096-point frame or longer than 524288 samples
+(about 10.9 s at 48 kHz, 65.5 s at 8 kHz). Sample rates run from 8 kHz to
+192 kHz. The plot for a file goes to 2 kHz so a 1 kHz tone sits inside
+the peak picker; the demo plot still stops at 1 kHz. The carrier box
+defaults to 216.67 Hz and is the frequency the timeline tracks.
 
 **Live page:** https://robertboettchersf.github.io/spectrum-analyzer/
 
@@ -69,14 +76,15 @@ rather than the CLI’s −45.7, and the threshold is −63.6 rather than −62.
 | `src/dsp-stft.adb` | waterfall frames and the carrier track |
 | `src/dsp-carrier.adb` | threshold and on/off edges |
 | `src/demo_signal.adb` | the 10 s demonstration waveform |
-| `src/analysis.adb` | runs the pipeline and keeps the results |
-| `src/spectrum_api.adb` | C exports the page calls (`sa_*`) |
+| `src/analysis.adb` | runs the pipeline on the demo or on PCM |
+| `src/spectrum_api.adb` | C exports the page calls (`sa_*`), including the PCM buffer |
 | `src/smoke.adb` | native checks, warnings as errors |
 | `web/template.html` | the lab screen; `build.sh` fills in the module |
 | `docs/index.html` | the built page (one file, no CDN) |
 | `tools/get-toolchain.sh` | AdaWebPack 24 into `./toolchain` |
-| `tools/embed.py` | base64 of `sa.wasm` into the page |
-| `tools/smoke_wasm.mjs` | the same numeric checks, inside the module |
+| `tools/wav_pcm.mjs` | 16-bit WAV check; stereo mixed to mono |
+| `tools/embed.py` | base64 of `sa.wasm`, and the WAV reader, into the page |
+| `tools/smoke_wasm.mjs` | the same numeric checks, plus a 1 kHz WAV |
 
 ## Build
 
@@ -94,7 +102,7 @@ sudo apt install gnat gprbuild rpm2cpio cpio lld libedit2
 tools/get-toolchain.sh          # AdaWebPack 24 into ./toolchain
 gprbuild -p -P spectrum.gpr && ./smoke
 ./build.sh                      # obj/wasm/sa.wasm -> docs/index.html
-node tools/smoke_wasm.mjs obj/wasm/sa.wasm
+node tools/smoke_wasm.mjs obj/wasm/sa.wasm   # demo, then a 1 kHz WAV
 ```
 
 `get-toolchain.sh` needs `alr` only when `libgnat-14.so` is missing. It
@@ -110,5 +118,5 @@ python3 -m http.server 8741 --directory docs
 
 ## Not in this version
 
-WAV drop, clicking or typing marker frequencies, an F9 dump, and SPARK
-proofs. The algorithms are plain Ada.
+Clicking the spectrum to place markers, an F9 dump, and SPARK proofs.
+The carrier is the number in the box. The algorithms are plain Ada.
