@@ -2,6 +2,11 @@
 --  Periodic form (divisor N, not N-1), so a bin-centred tone lands on
 --  exactly three FFT bins and the coherent-gain normalisation in
 --  DSP.Magnitude is exact.
-package DSP.Window is
-   procedure Hann (Win : out Real_Array);
+--  The loop and the range of each coefficient are SPARK. Cos is the
+--  trusted platform bound from DSP.
+package DSP.Window with SPARK_Mode is
+   procedure Hann (Win : out Real_Array) with
+     Pre => Win'Length <= DSP.Max_FFT,
+     Post => (for all I in Win'Range => Win (I) in 0.0 .. 1.0),
+     Global => null;
 end DSP.Window;

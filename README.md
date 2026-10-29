@@ -85,8 +85,10 @@ rather than the CLI’s −45.7, and the threshold is −63.6 rather than −62.
 | `src/analysis.adb` | runs the pipeline on the demo or on PCM |
 | `src/spectrum_api.adb` | C exports the page calls (`sa_*`), including the PCM buffer |
 | `src/smoke.adb` | native checks, warnings as errors |
-| `web/template.html` | the lab screen; `build.sh` fills in the module |
+| `web/template.html` | the lab screen; `build.sh` fills in the module and the proof summary |
 | `docs/index.html` | the built page (one file, no CDN) |
+| `proof/gnatprove.out` | GNATprove summary baked into the page badge |
+| `prove.sh` | runs GNATprove and refreshes that summary |
 | `tools/get-toolchain.sh` | AdaWebPack 24 into `./toolchain` |
 | `tools/wav_pcm.mjs` | 16-bit WAV check; stereo mixed to mono |
 | `tools/embed.py` | base64 of `sa.wasm`, and the WAV reader, into the page |
@@ -107,7 +109,8 @@ sudo apt install gnat gprbuild rpm2cpio cpio lld libedit2
 # alr on PATH if libgnat-14 is not already installed
 tools/get-toolchain.sh          # AdaWebPack 24 into ./toolchain
 gprbuild -p -P spectrum.gpr && ./smoke
-./build.sh                      # obj/wasm/sa.wasm -> docs/index.html
+./prove.sh                      # GNATprove -> proof/gnatprove.out
+./build.sh                      # obj/wasm/sa.wasm + proof summary -> docs/index.html
 node tools/smoke_wasm.mjs obj/wasm/sa.wasm   # demo, then a 1 kHz WAV
 ```
 
@@ -122,7 +125,46 @@ Then open `docs/index.html`, or serve the directory:
 python3 -m http.server 8741 --directory docs
 ```
 
+## Proof status
+
+GNATprove FSF 16.1.0, `--mode=all --level=2 --timeout=60 --counterexamples=off`,
+on the SPARK subset: the Hann window, the FFT index plan, magnitude framing,
+the STFT hop counter and quantiser, and the carrier bin and edge list.
+**405 checks, 405 proved, 0 justified, 0 unproved.** No `pragma Annotate`, no
+`pragma Assume` in `src/`. The badge on the page is **SPARK Silver**. Click it
+for the table. **F9** downloads a JSON file with that summary, the commit, and
+the markers and carrier edges currently on screen. Demo, WAV and marker
+behaviour are the same numbers as before.
+
+| Level | What | Status |
+|---|---|---|
+| Stone | valid SPARK subset | ✓ |
+| Bronze | flow (initialization, data dependencies) | ✓ |
+| Silver | no run-time errors, loops terminate | ✓ 208 run-time + 17 termination |
+| Gold | open | the contracts do not say the transform is a DFT, that a bin-centred Hann sine has gain 1, or that float matches a fixed-point model |
+
+What the proved contracts do say: each Hann coefficient is in [0, 1]; a power of
+two stays a power of two when halved; waterfall cells are in 0 .. 99; the
+carrier bin is clamped to the spectrum; a track produces at most 32 edges;
+frame and hop indexes used by the pipeline cannot overflow GNAT's 32-bit
+`Integer` (the same width as wasm32).
+
+Measured, not proved:
+
+* Complex add, subtract, multiply and magnitude; the FFT butterfly; the
+  sin/cos twiddle; `2 |X| / Σ window`. `SPARK_Mode` is off on those bodies.
+  The bin-centred tone (peak 1, shoulders 0.5) and the demo smoke are the check.
+* `Sin` and `Cos` are trusted in [−1, 1], and `Log10` in [−4000, 4000]. The
+  posts are bounds on the platform elementary functions, not proofs of them.
+* The parabolic peak picker, the demo waveform, `Analysis`, and
+  `spectrum_api` (the WASM glue). JavaScript only draws and reads the WAV.
+* Floating point is not a fixed-point development. Nothing is proved about
+  the distance between this float pipeline and an integer model.
+
+The page shows "built from `<commit>`" and then asks GitHub which commit last
+changed `docs/index.html`. A ✓ means that commit's parent is the source
+commit. Deploys are two commits: sources, then `docs/index.html`.
+
 ## Not in this version
 
-Clicking the spectrum to place markers, an F9 dump, and SPARK proofs.
-The carrier is the number in the box. The algorithms are plain Ada.
+Clicking the spectrum to place markers. The carrier is the number in the box.

@@ -8,6 +8,10 @@ if [ ! -x "$T/bin/llvm-gcc" ]; then
   echo "Run tools/get-toolchain.sh first"
   exit 1
 fi
+if [ ! -f proof/gnatprove.out ]; then
+  echo "Run ./prove.sh first"
+  exit 1
+fi
 export LD_LIBRARY_PATH="$PWD/toolchain/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
 LD=$(command -v wasm-ld || true)
 if [ -z "$LD" ]; then
@@ -82,5 +86,5 @@ PY
   *.o \
   libgnat-wasm.a
 cd ../..
-python3 tools/embed.py obj/wasm/sa.wasm web/template.html docs/index.html
+python3 tools/embed.py obj/wasm/sa.wasm proof/gnatprove.out web/template.html docs/index.html
 echo "Built docs/index.html ($(wc -c < obj/wasm/sa.wasm) bytes of WebAssembly)"

@@ -1,11 +1,15 @@
-package body DSP.Carrier is
+package body DSP.Carrier with SPARK_Mode is
    function Bin (Carrier_Hz, Df : Real; Last_Bin : Natural) return Natural is
       K : Integer;
    begin
       if Df <= 0.0 then
          return 0;
       end if;
-      K := Integer (Real'Rounding (Carrier_Hz / Df));
+      declare
+         R : constant Real := Carrier_Hz / Df;
+      begin
+         K := Integer (Real'Rounding (R));
+      end;
       if K < 0 then
          return 0;
       elsif K > Integer (Last_Bin) then
@@ -24,7 +28,8 @@ package body DSP.Carrier is
       if K > 0 and then K - 1 in Mag'Range and then Mag (K - 1) > A then
          A := Mag (K - 1);
       end if;
-      if K + 1 in Mag'Range and then Mag (K + 1) > A then
+      --  K = Natural'Last has no in-range successor, and K + 1 would overflow.
+      if K < Natural'Last and then K + 1 in Mag'Range and then Mag (K + 1) > A then
          A := Mag (K + 1);
       end if;
       return To_DBFS (A);
@@ -65,6 +70,9 @@ package body DSP.Carrier is
       Lo := Level (Level'First);
       Hi := Level (Level'First);
       for V of Level loop
+         pragma Loop_Invariant (Lo in -10_000.0 .. 10_000.0);
+         pragma Loop_Invariant (Hi in -10_000.0 .. 10_000.0);
+         pragma Loop_Invariant (Lo <= Hi);
          if V < Lo then
             Lo := V;
          end if;
@@ -80,6 +88,7 @@ package body DSP.Carrier is
       Threshold := Thr;
 
       for Fr in Level'Range loop
+         pragma Loop_Invariant (Count <= Max_Edges);
          declare
             T  : constant Real :=
               Frame_Time (Fr - Level'First, Hop, Rate, Window_N);

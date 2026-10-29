@@ -1,0 +1,201 @@
+=========================
+Summary of SPARK analysis
+=========================
+
+------------------------------------------------------------------------------------------------------------------------
+SPARK Analysis results        Total        Flow                                           Provers   Justified   Unproved
+------------------------------------------------------------------------------------------------------------------------
+Data Dependencies                21          21                                                 .           .          .
+Flow Dependencies                 2           2                                                 .           .          .
+Initialization                   32          32                                                 .           .          .
+Non-Aliasing                      .           .                                                 .           .          .
+Run-time Checks                 208           .    208 (CVC5 48%, Trivial 7%, Z3 45%, altergo 1%)           .          .
+Assertions                       83           .     83 (CVC5 56%, Trivial 2%, Z3 40%, altergo 2%)           .          .
+Functional Contracts             42           .     42 (CVC5 60%, Trivial 1%, Z3 38%, altergo 1%)           .          .
+LSP Verification                  .           .                                                 .           .          .
+Termination                      17          10                              7 (CVC5 71%, Z3 29%)           .          .
+Concurrency                       .           .                                                 .           .          .
+------------------------------------------------------------------------------------------------------------------------
+Total                           405    65 (16%)                                         340 (84%)           .          .
+
+
+max steps used for successful proof: 63334
+
+============================
+Most difficult proved checks
+============================
+
+dsp-window.adb:14:61: fp_overflow check proved in max 14 seconds
+dsp-carrier.adb:11:39: range check proved in max 3 seconds
+dsp-magnitude.adb:97:33: loop invariant after first iteration proved in max 2 seconds
+dsp-stft.adb:93:24: precondition proved in max 2 seconds
+dsp-stft.adb:80:22: assertion proved in max 1 seconds
+dsp-stft.adb:87:34: range check proved in max 1 seconds
+dsp-stft.adb:84:19: fp_overflow check proved in max 1 seconds
+dsp-carrier.adb:84:21: fp_overflow check proved in max 1 seconds
+dsp-carrier.adb:9:42: fp_overflow check proved in max 1 seconds
+dsp-carrier.adb:43:47: fp_overflow check proved in max 1 seconds
+
+========================
+Detailed analysis report
+========================
+
+Analyzed 11 units
+in unit analysis, 0 subprograms and packages out of 51 analyzed
+  Analysis.Append at analysis.adb:85 skipped; SPARK_Mode => Off
+  Analysis.Append_Char at analysis.adb:77 skipped; SPARK_Mode => Off
+  Analysis.Append_Digits at analysis.adb:92 skipped; SPARK_Mode => Off
+  Analysis.Avg_Count at analysis.ads:45 skipped; SPARK_Mode => Off
+  Analysis.Carrier_Bin at analysis.ads:51 skipped; SPARK_Mode => Off
+  Analysis.Carrier_Hz at analysis.ads:50 skipped; SPARK_Mode => Off
+  Analysis.Check_Tone at analysis.adb:113 skipped; SPARK_Mode => Off
+  Analysis.Compute at analysis.adb:162 skipped; SPARK_Mode => Off
+  Analysis.Df at analysis.ads:47 skipped; SPARK_Mode => Off
+  Analysis.Duration at analysis.ads:52 skipped; SPARK_Mode => Off
+  Analysis.Edge_Count at analysis.ads:75 skipped; SPARK_Mode => Off
+  Analysis.Edge_Off at analysis.ads:77 skipped; SPARK_Mode => Off
+  Analysis.Edge_On at analysis.ads:76 skipped; SPARK_Mode => Off
+  Analysis.F_Max at analysis.ads:49 skipped; SPARK_Mode => Off
+  Analysis.Fft_Size at analysis.ads:42 skipped; SPARK_Mode => Off
+  Analysis.Floor_DB at analysis.ads:53 skipped; SPARK_Mode => Off
+  Analysis.Hi_DB at analysis.ads:56 skipped; SPARK_Mode => Off
+  Analysis.Hop_Size at analysis.ads:44 skipped; SPARK_Mode => Off
+  Analysis.Live_Index at analysis.ads:90 skipped; SPARK_Mode => Off
+  Analysis.Live_Total at analysis.ads:93 skipped; SPARK_Mode => Off
+  Analysis.Lo_DB at analysis.ads:55 skipped; SPARK_Mode => Off
+  Analysis.Marker_Count at analysis.ads:61 skipped; SPARK_Mode => Off
+  Analysis.Marker_DB at analysis.ads:63 skipped; SPARK_Mode => Off
+  Analysis.Marker_Hz at analysis.ads:62 skipped; SPARK_Mode => Off
+  Analysis.Marker_Is_Carrier at analysis.ads:64 skipped; SPARK_Mode => Off
+  Analysis.Put_PCM at analysis.ads:23 skipped; SPARK_Mode => Off
+  Analysis.Rbw at analysis.ads:57 skipped; SPARK_Mode => Off
+  Analysis.Ready at analysis.ads:35 skipped; SPARK_Mode => Off
+  Analysis.Refresh_Track at analysis.adb:133 skipped; SPARK_Mode => Off
+  Analysis.Run at analysis.ads:21 skipped; SPARK_Mode => Off
+  Analysis.Run_PCM at analysis.ads:26 skipped; SPARK_Mode => Off
+  Analysis.Sample_Rate at analysis.ads:41 skipped; SPARK_Mode => Off
+  Analysis.Sdf at analysis.ads:48 skipped; SPARK_Mode => Off
+  Analysis.Set_Source at analysis.adb:67 skipped; SPARK_Mode => Off
+  Analysis.Source_Character at analysis.ads:33 skipped; SPARK_Mode => Off
+  Analysis.Source_Length at analysis.ads:32 skipped; SPARK_Mode => Off
+  Analysis.Spec_Bins at analysis.ads:46 skipped; SPARK_Mode => Off
+  Analysis.Spec_DB at analysis.ads:59 skipped; SPARK_Mode => Off
+  Analysis.Stft_Size at analysis.ads:43 skipped; SPARK_Mode => Off
+  Analysis.Threshold_DB at analysis.ads:54 skipped; SPARK_Mode => Off
+  Analysis.Timeline_Count at analysis.ads:70 skipped; SPARK_Mode => Off
+  Analysis.Timeline_DB at analysis.ads:72 skipped; SPARK_Mode => Off
+  Analysis.Timeline_On at analysis.ads:73 skipped; SPARK_Mode => Off
+  Analysis.Timeline_T at analysis.ads:71 skipped; SPARK_Mode => Off
+  Analysis.Tone_Far at analysis.ads:39 skipped; SPARK_Mode => Off
+  Analysis.Tone_OK at analysis.ads:36 skipped; SPARK_Mode => Off
+  Analysis.Tone_Peak at analysis.ads:37 skipped; SPARK_Mode => Off
+  Analysis.Tone_Side at analysis.ads:38 skipped; SPARK_Mode => Off
+  Analysis.Waterfall at analysis.ads:68 skipped; SPARK_Mode => Off
+  Analysis.Waterfall_Cols at analysis.ads:67 skipped; SPARK_Mode => Off
+  Analysis.Waterfall_Rows at analysis.ads:66 skipped; SPARK_Mode => Off
+in unit demo_signal, 0 subprograms and packages out of 1 analyzed
+  Demo_Signal.Generate at demo_signal.ads:18 skipped; SPARK_Mode => Off
+in unit dsp, 3 subprograms and packages out of 11 analyzed
+  DSP at dsp.ads:10 flow analyzed (0 errors, 0 checks, 0 warnings and 0 pragma Assume statements) and proved (0 checks)
+  DSP."*" at dsp.ads:35 skipped; body is SPARK_Mode => Off
+  DSP."+" at dsp.ads:33 skipped; body is SPARK_Mode => Off
+  DSP."-" at dsp.ads:34 skipped; body is SPARK_Mode => Off
+  DSP."abs" at dsp.ads:36 skipped; body is SPARK_Mode => Off
+  DSP.Cos at dsp.ads:42 skipped; body is SPARK_Mode => Off
+  DSP.Is_Power_Of_Two at dsp.ads:25 flow analyzed (0 errors, 0 checks, 0 warnings and 0 pragma Assume statements) and proved (7 checks)
+  DSP.Log10 at dsp.adb:45 skipped; body is SPARK_Mode => Off
+  DSP.Sin at dsp.ads:39 skipped; body is SPARK_Mode => Off
+  DSP.Sqrt at dsp.ads:45 skipped; body is SPARK_Mode => Off
+  DSP.To_DBFS at dsp.ads:50 flow analyzed (0 errors, 0 checks, 0 warnings and 0 pragma Assume statements) and proved (3 checks)
+in unit dsp-carrier, 5 subprograms and packages out of 5 analyzed
+  DSP.Carrier at dsp-carrier.ads:12 flow analyzed (0 errors, 0 checks, 0 warnings and 0 pragma Assume statements) and proved (0 checks)
+  DSP.Carrier.Bin at dsp-carrier.ads:24 flow analyzed (0 errors, 0 checks, 0 warnings and 0 pragma Assume statements) and proved (6 checks)
+  DSP.Carrier.Detect at dsp-carrier.ads:46 flow analyzed (0 errors, 0 checks, 0 warnings and 0 pragma Assume statements) and proved (23 checks)
+  DSP.Carrier.Frame_Time at dsp-carrier.ads:37 flow analyzed (0 errors, 0 checks, 0 warnings and 0 pragma Assume statements) and proved (13 checks)
+  DSP.Carrier.Level_DB at dsp-carrier.ads:33 flow analyzed (0 errors, 0 checks, 0 warnings and 0 pragma Assume statements) and proved (9 checks)
+in unit dsp-fft, 8 subprograms and packages out of 11 analyzed
+  DSP.FFT at dsp-fft.ads:9 flow analyzed (0 errors, 0 checks, 0 warnings and 0 pragma Assume statements) and proved (0 checks)
+  DSP.FFT.Butterfly at dsp-fft.adb:155 skipped; body is SPARK_Mode => Off
+  DSP.FFT.Exp_Of at dsp-fft.adb:77 flow analyzed (0 errors, 0 checks, 0 warnings and 0 pragma Assume statements) and proved (17 checks)
+  DSP.FFT.Lemma_Block at dsp-fft.adb:40 flow analyzed (0 errors, 0 checks, 0 warnings and 0 pragma Assume statements) and proved (6 checks)
+  DSP.FFT.Lemma_Double at dsp-fft.adb:101 flow analyzed (0 errors, 0 checks, 0 warnings and 0 pragma Assume statements) and proved (38 checks)
+  DSP.FFT.Lemma_Half at dsp-fft.adb:4 flow analyzed (0 errors, 0 checks, 0 warnings and 0 pragma Assume statements) and proved (10 checks)
+  DSP.FFT.Lemma_Shift at dsp-fft.adb:20 flow analyzed (0 errors, 0 checks, 0 warnings and 0 pragma Assume statements) and proved (13 checks)
+  DSP.FFT.Next_W at dsp-fft.adb:147 skipped; body is SPARK_Mode => Off
+  DSP.FFT.Pow2 at dsp-fft.adb:55 flow analyzed (0 errors, 0 checks, 0 warnings and 0 pragma Assume statements) and proved (1 checks)
+  DSP.FFT.Transform at dsp-fft.ads:10 flow analyzed (0 errors, 0 checks, 0 warnings and 0 pragma Assume statements) and proved (68 checks)
+  DSP.FFT.Twiddle at dsp-fft.adb:137 skipped; body is SPARK_Mode => Off
+in unit dsp-magnitude, 4 subprograms and packages out of 5 analyzed
+  DSP.Magnitude at dsp-magnitude.ads:10 flow analyzed (0 errors, 0 checks, 0 warnings and 0 pragma Assume statements) and proved (0 checks)
+  DSP.Magnitude.Frame at dsp-magnitude.ads:17 flow analyzed (0 errors, 0 checks, 0 warnings and 0 pragma Assume statements) and proved (38 checks)
+  DSP.Magnitude.Lemma_Offset at dsp-magnitude.adb:10 flow analyzed (0 errors, 0 checks, 0 warnings and 0 pragma Assume statements) and proved (5 checks)
+  DSP.Magnitude.Scaled_Mag at dsp-magnitude.adb:30 skipped; body is SPARK_Mode => Off
+  DSP.Magnitude.Windowed at dsp-magnitude.adb:22 flow analyzed (0 errors, 0 checks, 0 warnings and 0 pragma Assume statements) and proved (2 checks)
+in unit dsp-peaks, 0 subprograms and packages out of 1 analyzed
+  DSP.Peaks.Find at dsp-peaks.ads:18 skipped; SPARK_Mode => Off
+in unit dsp-stft, 5 subprograms and packages out of 5 analyzed
+  DSP.STFT at dsp-stft.ads:11 flow analyzed (0 errors, 0 checks, 0 warnings and 0 pragma Assume statements) and proved (0 checks)
+  DSP.STFT.Build at dsp-stft.ads:64 flow analyzed (0 errors, 0 checks, 0 warnings and 0 pragma Assume statements) and proved (27 checks)
+  DSP.STFT.Count_Frames at dsp-stft.ads:29 flow analyzed (0 errors, 0 checks, 0 warnings and 0 pragma Assume statements) and proved (4 checks)
+  DSP.STFT.Measure_Frame at dsp-stft.ads:38 flow analyzed (0 errors, 0 checks, 0 warnings and 0 pragma Assume statements) and proved (25 checks)
+  DSP.STFT.Quantize at dsp-stft.ads:24 flow analyzed (0 errors, 0 checks, 0 warnings and 0 pragma Assume statements) and proved (6 checks)
+in unit dsp-window, 2 subprograms and packages out of 2 analyzed
+  DSP.Window at dsp-window.ads:7 flow analyzed (0 errors, 0 checks, 0 warnings and 0 pragma Assume statements) and proved (0 checks)
+  DSP.Window.Hann at dsp-window.ads:8 flow analyzed (0 errors, 0 checks, 0 warnings and 0 pragma Assume statements) and proved (19 checks)
+in unit smoke, 0 subprograms and packages out of 1 analyzed
+  Smoke at smoke.adb:12 skipped; SPARK_Mode => Off
+in unit spectrum_api, 0 subprograms and packages out of 54 analyzed
+  Spectrum_API.Analyze at spectrum_api.ads:25 skipped; SPARK_Mode => Off
+  Spectrum_API.Avg_Count at spectrum_api.ads:67 skipped; SPARK_Mode => Off
+  Spectrum_API.Carrier_Bin at spectrum_api.ads:79 skipped; SPARK_Mode => Off
+  Spectrum_API.Carrier_UHz at spectrum_api.ads:77 skipped; SPARK_Mode => Off
+  Spectrum_API.DB10 at spectrum_api.adb:24 skipped; SPARK_Mode => Off
+  Spectrum_API.Df_UHz at spectrum_api.ads:71 skipped; SPARK_Mode => Off
+  Spectrum_API.Duration_US at spectrum_api.ads:81 skipped; SPARK_Mode => Off
+  Spectrum_API.Edge_Off_US at spectrum_api.ads:125 skipped; SPARK_Mode => Off
+  Spectrum_API.Edge_On_US at spectrum_api.ads:123 skipped; SPARK_Mode => Off
+  Spectrum_API.Edges at spectrum_api.ads:121 skipped; SPARK_Mode => Off
+  Spectrum_API.Fft_N at spectrum_api.ads:61 skipped; SPARK_Mode => Off
+  Spectrum_API.Flag at spectrum_api.adb:60 skipped; SPARK_Mode => Off
+  Spectrum_API.Floor_DB10 at spectrum_api.ads:83 skipped; SPARK_Mode => Off
+  Spectrum_API.Fmax_UHz at spectrum_api.ads:75 skipped; SPARK_Mode => Off
+  Spectrum_API.Hi_DB10 at spectrum_api.ads:89 skipped; SPARK_Mode => Off
+  Spectrum_API.Hop at spectrum_api.ads:65 skipped; SPARK_Mode => Off
+  Spectrum_API.Live_Index at spectrum_api.ads:142 skipped; SPARK_Mode => Off
+  Spectrum_API.Live_Total at spectrum_api.ads:144 skipped; SPARK_Mode => Off
+  Spectrum_API.Lo_DB10 at spectrum_api.ads:87 skipped; SPARK_Mode => Off
+  Spectrum_API.Marker_Carrier at spectrum_api.ads:102 skipped; SPARK_Mode => Off
+  Spectrum_API.Marker_DB10 at spectrum_api.ads:100 skipped; SPARK_Mode => Off
+  Spectrum_API.Marker_UHz at spectrum_api.ads:98 skipped; SPARK_Mode => Off
+  Spectrum_API.Markers at spectrum_api.ads:96 skipped; SPARK_Mode => Off
+  Spectrum_API.PCM_Cap at spectrum_api.ads:31 skipped; SPARK_Mode => Off
+  Spectrum_API.PCM_FMax_UHz at spectrum_api.ads:39 skipped; SPARK_Mode => Off
+  Spectrum_API.PCM_Max_Rate at spectrum_api.ads:37 skipped; SPARK_Mode => Off
+  Spectrum_API.PCM_Min at spectrum_api.ads:33 skipped; SPARK_Mode => Off
+  Spectrum_API.PCM_Min_Rate at spectrum_api.ads:35 skipped; SPARK_Mode => Off
+  Spectrum_API.PPM at spectrum_api.adb:52 skipped; SPARK_Mode => Off
+  Spectrum_API.Put_Exception at spectrum_api.adb:8 skipped; SPARK_Mode => Off
+  Spectrum_API.Rate at spectrum_api.ads:59 skipped; SPARK_Mode => Off
+  Spectrum_API.Rbw_UHz at spectrum_api.ads:91 skipped; SPARK_Mode => Off
+  Spectrum_API.Ready at spectrum_api.ads:48 skipped; SPARK_Mode => Off
+  Spectrum_API.Sdf_UHz at spectrum_api.ads:73 skipped; SPARK_Mode => Off
+  Spectrum_API.Source_Char at spectrum_api.ads:130 skipped; SPARK_Mode => Off
+  Spectrum_API.Source_Len at spectrum_api.ads:128 skipped; SPARK_Mode => Off
+  Spectrum_API.Spec_Bins at spectrum_api.ads:69 skipped; SPARK_Mode => Off
+  Spectrum_API.Spec_DB10 at spectrum_api.ads:94 skipped; SPARK_Mode => Off
+  Spectrum_API.Stft_N at spectrum_api.ads:63 skipped; SPARK_Mode => Off
+  Spectrum_API.Store at spectrum_api.ads:44 skipped; SPARK_Mode => Off
+  Spectrum_API.Thr_DB10 at spectrum_api.ads:85 skipped; SPARK_Mode => Off
+  Spectrum_API.Tl_Count at spectrum_api.ads:112 skipped; SPARK_Mode => Off
+  Spectrum_API.Tl_DB10 at spectrum_api.ads:116 skipped; SPARK_Mode => Off
+  Spectrum_API.Tl_On at spectrum_api.ads:118 skipped; SPARK_Mode => Off
+  Spectrum_API.Tl_US at spectrum_api.ads:114 skipped; SPARK_Mode => Off
+  Spectrum_API.Tone_Far_PPM at spectrum_api.ads:56 skipped; SPARK_Mode => Off
+  Spectrum_API.Tone_OK at spectrum_api.ads:50 skipped; SPARK_Mode => Off
+  Spectrum_API.Tone_Peak_PPM at spectrum_api.ads:52 skipped; SPARK_Mode => Off
+  Spectrum_API.Tone_Side_PPM at spectrum_api.ads:54 skipped; SPARK_Mode => Off
+  Spectrum_API.UHz at spectrum_api.adb:34 skipped; SPARK_Mode => Off
+  Spectrum_API.US at spectrum_api.adb:44 skipped; SPARK_Mode => Off
+  Spectrum_API.Wf at spectrum_api.ads:109 skipped; SPARK_Mode => Off
+  Spectrum_API.Wf_Cols at spectrum_api.ads:107 skipped; SPARK_Mode => Off
+  Spectrum_API.Wf_Rows at spectrum_api.ads:105 skipped; SPARK_Mode => Off

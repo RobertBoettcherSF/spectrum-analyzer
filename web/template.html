@@ -152,6 +152,45 @@
     margin: 4px 8px 0;
     line-height: 1.4;
   }
+  .badge-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin: 0 0 10px;
+  }
+  #badge {
+    font: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    border-radius: 999px;
+    border: 1px solid #9ab;
+    background: #d5dbe0;
+    color: #1a1d20;
+    padding: 3px 10px;
+  }
+  #served { color: #8a8; font-size: 11px; }
+  #proofPanel {
+    background: #0c140c;
+    border: 1px solid #4a6;
+    color: #c8d8c0;
+    padding: 10px 12px;
+    margin: 0 0 12px;
+    font-size: 12px;
+    line-height: 1.45;
+    overflow-x: auto;
+  }
+  #proofPanel table { border-collapse: collapse; margin: 8px 0; }
+  #proofPanel td, #proofPanel th {
+    border: 1px solid #345;
+    padding: 2px 6px;
+    text-align: right;
+  }
+  #proofPanel td:first-child, #proofPanel th:first-child { text-align: left; }
+  #proofPanel .ok { color: #9c9; }
+  #proofPanel .no { color: #f88; }
+  #proofPanel a { color: #9cf; }
   @media (max-width: 700px) {
     body { padding: 10px 6px 20px; }
     h1 { font-size: 16px; }
@@ -168,6 +207,11 @@
 <div class="wrap">
   <h1>ADA SPECTRUM ANALYZER</h1>
   <p class="lede">Fake mains and a ripple-control signal — Ada does the math in your browser.</p>
+  <p class="badge-row">
+    <button type="button" id="badge" hidden>SPARK</button>
+    <span id="served"></span>
+  </p>
+  <div id="proofPanel" hidden></div>
   <div class="info" id="info">Loading the Ada WebAssembly module…</div>
   <div id="err" hidden></div>
   <div class="bar">
@@ -212,6 +256,7 @@
 "use strict";
 __WAV_PCM_JS__
 const WASM = "__WASM_BASE64__";
+const PROOF = __PROOF_JSON__;
 
 const sp = document.getElementById("sp");
 const wf = document.getElementById("wf");
@@ -229,6 +274,51 @@ const wfhint = document.getElementById("wfhint");
 const playBtn = document.getElementById("play");
 const stopBtn = document.getElementById("stop");
 const fullBtn = document.getElementById("full");
+
+// Proof badge. The summary is baked in at build time from proof/gnatprove.out.
+(function setupProof() {
+  const reached = PROOF.levels.filter(l => l[2]).map(l => l[0]);
+  const topLevel = PROOF.levels.every(l => l[2]) ? "Gold" : (reached[reached.length - 1] || "none");
+  const badge = document.getElementById("badge");
+  const servedEl = document.getElementById("served");
+  const proofPanel = document.getElementById("proofPanel");
+  const total = (PROOF.rows.Total && PROOF.rows.Total.total) || 0;
+  badge.hidden = false;
+  badge.textContent = "SPARK " + topLevel + " ✓ " + total + " checks · built from " + PROOF.commit;
+  badge.style.background = topLevel === "Gold" ? "#b8860b" : "#d5dbe0";
+  badge.style.color = "#1a1d20";
+  const head = ["Category", "Total", "Flow", "Provers", "Justified", "Unproved"];
+  let table = "<table><tr>" + head.map(h => "<th>" + h + "</th>").join("") + "</tr>";
+  Object.entries(PROOF.rows).forEach(([k, r]) => {
+    const cells = [k, r.total, r.flow, r.provers, r.justified, r.unproved];
+    table += "<tr>" + cells.map(c => "<td>" + c + "</td>").join("") + "</tr>";
+  });
+  table += "</table>";
+  proofPanel.innerHTML =
+    "<div>GNATprove summary (" + PROOF.gnatprove + ", commit " + PROOF.commit +
+    ", built " + PROOF.built + ")</div>" +
+    PROOF.levels.map(l =>
+      '<div class="' + (l[2] ? "ok" : "no") + '">' + (l[2] ? "✓" : "✗") + " " +
+      l[0] + ": " + l[1] + "</div>").join("") +
+    table +
+    "<div>" + PROOF.honesty.map(h => "· " + h).join("<br>") + "</div>" +
+    '<div><a href="https://github.com/RobertBoettcherSF/spectrum-analyzer/blob/main/proof/gnatprove.out">Full report</a></div>';
+  badge.onclick = () => { proofPanel.hidden = !proofPanel.hidden; };
+  fetch("https://api.github.com/repos/RobertBoettcherSF/spectrum-analyzer/commits?path=docs/index.html&per_page=1")
+    .then(r => r.ok ? r.json() : Promise.reject(r.status))
+    .then(cs => {
+      const c = cs[0];
+      const served = c.sha.slice(0, 7);
+      const ok = c.parents.some(p => p.sha.startsWith(PROOF.commit));
+      servedEl.textContent = "served: " + served + (ok
+        ? " ✓ (parent = " + PROOF.commit + ")"
+        : " ⚠ parent is not " + PROOF.commit);
+    })
+    .catch(e => { servedEl.textContent = "served commit: unknown (GitHub API: " + e + ")"; });
+})();
+
+const pageErrors = [];
+addEventListener("error", e => { pageErrors.push(String(e.message || e)); });
 
 function dbText(db10) { return (db10 / 10).toFixed(1); }
 function hzText(uhz) { return (uhz / 1e6).toFixed(2); }
@@ -1159,6 +1249,42 @@ addEventListener("paste", e => {
   }
   e.preventDefault();
   takeFile(file);
+});
+
+function downloadJson(name, obj) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(obj, null, 1)], {type: "application/json"}));
+  a.download = name;
+  a.click();
+}
+
+// F9 writes a feedback file: the build's proof summary plus the take on screen.
+addEventListener("keydown", e => {
+  if (e.key !== "F9") return;
+  e.preventDefault();
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  downloadJson("feedback-" + stamp + ".json", {
+    version: "spark-1",
+    commit: PROOF.commit,
+    built: PROOF.built,
+    gnatprove: PROOF.gnatprove,
+    time: new Date().toISOString(),
+    browser: navigator.userAgent,
+    screen: [innerWidth, innerHeight, devicePixelRatio],
+    mode: mode,
+    source: data && data.source,
+    rate: data && data.rate,
+    fft: data && data.fft,
+    stft: data && data.stft,
+    hop: data && data.hop,
+    carrier: data && data.carrier,
+    tone: data && data.tone,
+    toneOk: data && data.toneOk,
+    markers: data && data.markers,
+    edges: data && data.edges,
+    proof: PROOF,
+    errors: pageErrors
+  });
 });
 
 async function main() {

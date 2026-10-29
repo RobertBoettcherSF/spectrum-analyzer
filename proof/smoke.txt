@@ -1,0 +1,187 @@
+tone peak/side/far ppm 1000000 500000 0
+rate 8000
+fft 4096
+stft 1024
+hop 256
+avg 39
+bins 513
+df_uhz 1953125
+sdf_uhz 7812500
+rbw_uhz 2929688
+carrier_bin 28
+floor_db10 -745
+thr_db10 -636
+lo_db10 -852
+hi_db10 -420
+rows 309
+cols 129
+frames 309
+markers 6
+edges 7
+  M1 49.98 Hz -5.9
+  M2 100.05 Hz -46.0
+  M3 149.98 Hz -28.0
+  M4 216.67 Hz -45.6  <- CARRIER
+  M5 250.00 Hz -32.1
+  M6 350.02 Hz -40.0
+  ON 0.48 s .. 1.06 s
+  ON 1.47 s .. 2.05 s
+  ON 2.46 s .. 3.55 s
+  ON 4.48 s .. 6.05 s
+  ON 6.50 s .. 7.04 s
+  ON 7.97 s .. 8.54 s
+  ON 8.99 s .. 9.54 s
+  ok  bin-centred Hann sine is 0 dBFS
+  ok  tone peak ~ 1
+  ok  Hann shoulder ~ 0.5
+  ok  far bin ~ 0
+  ok  sample rate 8000
+  ok  FFT 4096
+  ok  STFT 1024
+  ok  hop 256
+  ok  39 averaged frames
+  ok  spectrum bins through 1 kHz
+  ok  waterfall rows
+  ok  waterfall columns
+  ok  timeline frames
+  ok  carrier bin 28 (218.75 Hz)
+  ok  10.000 s
+  ok  RBW 2.93 Hz
+  ok  six markers
+  ok  50 Hz near -5.9 dBFS
+  ok  100 Hz near -46 dBFS
+  ok  150 Hz near -28 dBFS
+  ok  216.67 Hz carrier peak
+  ok  250 Hz near -32 dBFS
+  ok  350 Hz near -40 dBFS
+  ok  M1 is not the carrier
+  ok  exactly one carrier marker
+  ok  seven carrier pulses
+  ok  first pulse opens near 0.5 s
+  ok  start pulse covers 0.70 s
+  ok  bit 1 covers 1.70 s
+  ok  merged 11 covers 3.00 s
+  ok  merged 111 covers 5.20 s
+  ok  bit covers 6.75 s
+  ok  bit covers 8.20 s
+  ok  last 1 covers 9.20 s
+  ok  gap after the start pulse
+  ok  gap before the long 111
+  ok  threshold between off and on
+  ok  on level above threshold
+  ok  off level below threshold
+  ok  reject sample rate below 8 kHz
+  ok  rejected PCM leaves the demo
+  ok  reject a short buffer
+  ok  reject a buffer past the cap
+  ok  reject a zero carrier
+  ok  demo markers still in place
+pcm 1 kHz
+  ok  analyze 1 kHz tone
+  ok  pcm rate 16000
+  ok  pcm duration 1 s
+  ok  1 kHz peak near -6 dBFS
+  ok  self-test still passes on pcm
+  ok  216.67 Hz is not a peak of the tone
+  M1 1000.00 Hz -6.0
+  ok  reanalyze with carrier at 1 kHz
+  ok  1 kHz peak still present
+  ok  exactly one carrier marker on the tone
+  ok  steady tone has no on/off edges
+  ok  carrier level near -6 dBFS
+  ok  reported carrier is 1000 Hz
+  ok  an on hop and a later off hop
+  ok  live begin is 309 hops
+  ok  live index before the first hop
+  ok  streaming clears the averaged markers
+  ok  first hop is frame 0
+  ok  live plays every hop
+  ok  a step past the end stops
+  ok  live index is the last hop
+  ok  live spectrum falls when the carrier drops
+  ok  live waterfall has every hop
+  ok  live waterfall columns
+  ok  live spectrum is one STFT frame
+  ok  live waterfall matches the one-shot
+  ok  live carrier level matches the one-shot
+  ok  that on hop is still on
+  ok  that off hop is still off
+  ok  live edges match the one-shot
+  ok  live first edge
+  ok  live last edge
+  ok  live threshold matches
+  ok  tone check still holds after streaming
+SMOKE PASSED
+tone 1000000 500000 0
+markers 6 edges 7 thr -636 floor -745
+M1 49.98 -5.9 
+M2 100.05 -46.0 
+M3 149.98 -28.0 
+M4 216.67 -45.6 CARRIER
+M5 250.00 -32.1 
+M6 350.02 -40.0 
+ON 0.48 1.06
+ON 1.47 2.05
+ON 2.46 3.55
+ON 4.48 6.05
+ON 6.50 7.04
+ON 7.97 8.54
+ON 8.99 9.54
+  ok  tone ok
+  ok  peak ~ 1
+  ok  rate and fft
+  ok  avg and bins
+  ok  waterfall shape
+  ok  timeline and carrier bin
+  ok  six markers
+  ok  50 Hz
+  ok  100 Hz
+  ok  150 Hz
+  ok  216.67 Hz
+  ok  250 Hz
+  ok  350 Hz
+  ok  seven edges
+  ok  on intervals
+  ok  off gaps
+  ok  reject non-RIFF: This file is not a RIFF WAVE. Choose an uncompressed 16-bit PCM .wav.
+  ok  reject IEEE float: This WAV is IEEE float, not 16-bit integer PCM. Export it as 16-bit PCM and try again.
+  ok  reject 24-bit PCM: This WAV is 24-bit PCM. Only 16-bit PCM is accepted.
+  ok  reject A-law: This WAV is not linear PCM (format code 6). Float, A-law, µ-law and compressed files are not accepted.
+  ok  reject over the cap: This WAV is too long: 101 samples (0.01 s at 16000 Hz). The analyzer accepts at most 100 samples (0.01 s at this rate).
+  ok  reject a short WAV: This WAV is too short: 100 samples. The analyzer needs at least 4096 samples (one FFT frame).
+  ok  reject six channels: This WAV has 6 channels. Only mono or stereo is accepted.
+  ok  stereo parses
+  ok  stereo mixes to the mean
+  ok  1 kHz stereo WAV accepted
+  ok  identical channels mix to the tone
+  ok  wasm rejects a low rate
+  ok  rejected PCM leaves the demo
+  ok  wasm rejects a short buffer
+  ok  wasm rejects a long buffer
+  ok  wasm rejects carrier 0
+  ok  pcm pointer is an aligned memory offset
+  ok  wasm analyzes the 1 kHz WAV
+  ok  wav rate and length
+  ok  wav peak at 1 kHz near -6 dBFS
+  ok  self-test still passes
+  ok  default carrier is not a peak of the tone
+pcm M1 1000.00 -6.0
+  ok  carrier field locks onto 1 kHz
+  ok  one carrier marker, no pulses
+  ok  reported carrier is 1000 Hz
+  ok  carrier level near -6 dBFS
+  ok  on hop then off hop
+  ok  live begin 309
+  ok  live index before first hop
+  ok  live clears markers
+  ok  first hop
+  ok  live stops after the last hop
+  ok  live spectrum falls when the carrier drops
+  ok  live waterfall shape
+  ok  live spectrum is one STFT
+  ok  live waterfall matches one-shot
+  ok  live level matches one-shot
+  ok  live edges
+  ok  live threshold
+  ok  tone still ok
+WASM SMOKE PASSED

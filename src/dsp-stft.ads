@@ -1,8 +1,18 @@
+with DSP.Magnitude;
+
 --  Short-time Fourier transform used by the waterfall and the carrier track.
 --  Each hop is one call to DSP.Magnitude. Waterfall cells are quantised
 --  to 0 .. 99 over the dBFS range -120 .. 0, which is what the page paints.
 --  The carrier column is not quantised: it stays in dBFS for the edge detector.
-package DSP.STFT is
+--
+--  SPARK proves frame counting, the hop indexes, the quantiser range and
+--  termination. The FFT numbers inside each hop are DSP.Magnitude's
+--  boundary (index proof plus the measured scale).
+package DSP.STFT with
+  SPARK_Mode,
+  Abstract_State => (Hop_Scratch),
+  Initializes => Hop_Scratch
+is
    --  2048 hops cover the longest accepted PCM buffer (524288 samples,
    --  1024-point window, hop 256 is 2045 frames). The demo uses 309.
    Max_Rows : constant := 2_048;
@@ -11,11 +21,17 @@ package DSP.STFT is
    type Image is array (0 .. Max_Rows - 1, 0 .. Max_Cols - 1) of Integer;
    subtype Level_List is Real_Array (0 .. Max_Rows - 1);
 
-   function Quantize (A : Real) return Integer;
+   function Quantize (A : Real) return Integer with
+     Global => null,
+     Post => Quantize'Result in 0 .. 99;
    --  Waterfall cell, 0 .. 99, for a linear magnitude over -120 .. 0 dBFS.
 
    function Count_Frames
-     (Length : Natural; Window, Hop : Positive) return Natural;
+     (Length : Natural; Window, Hop : Positive) return Natural
+   with
+     Global => null,
+     Pre => Length <= 524_288 and then Window <= DSP.Max_FFT,
+     Post => Count_Frames'Result in 1 .. Max_Rows;
    --  Hops Build will take, capped at Max_Rows. A take shorter than
    --  Window is still one frame.
 
@@ -30,7 +46,15 @@ package DSP.STFT is
       Cols        : out Natural;
       Df          : out Real;
       Carrier_Bin : out Natural;
-      Level       : out Real);
+      Level       : out Real)
+   with
+     Global => (In_Out => DSP.Magnitude.Work_State),
+     Pre => Win'Length <= 1_024
+       and then Mag'Length <= 1_024
+       and then Rate in 8_000 .. 192_000
+       and then F_Max in 0.0 .. 2_000.0
+       and then Carrier_Hz in 0.0 .. 2_000.0,
+     Post => Cols <= Max_Cols;
    --  One windowed hop. Mag'Length must be at least Win'Length / 2 + 1
    --  and Mag'First is the DC bin. Cols counts bins from 0 through F_Max.
    --  Level is the carrier in dBFS (nearest bin and its two neighbours).
@@ -50,7 +74,16 @@ package DSP.STFT is
       Level       : out Level_List;
       Frames      : out Natural;
       Df          : out Real;
-      Carrier_Bin : out Natural);
+      Carrier_Bin : out Natural)
+   with
+     Global => (In_Out => (Hop_Scratch, DSP.Magnitude.Work_State)),
+     Pre => S'First = 0
+       and then S'Length <= 524_288
+       and then Hop <= DSP.Max_FFT
+       and then Win'Length <= 1_024
+       and then Rate in 8_000 .. 192_000
+       and then F_Max in 0.0 .. 2_000.0
+       and then Carrier_Hz in 0.0 .. 2_000.0;
    --  Win'Length must be a power of two, at most 1024.
    --  Frames is every hop, capped at Max_Rows. Waterfall rows are a
    --  stride of those frames, about 400 lines. Level (0 .. Frames-1)

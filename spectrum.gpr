@@ -6,4 +6,7 @@ project Spectrum is
    package Compiler is
       for Default_Switches ("Ada") use ("-gnat2012", "-gnatwa", "-gnatwe", "-O2");
    end Compiler;
+   package Prove is
+      for Proof_Switches ("Ada") use ("--level=2", "--timeout=60");
+   end Prove;
 end Spectrum;

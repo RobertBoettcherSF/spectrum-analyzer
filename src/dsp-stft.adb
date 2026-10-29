@@ -1,14 +1,25 @@
-with DSP.Magnitude;
 with DSP.Carrier;
 
-package body DSP.STFT is
-   Scratch : Real_Array (0 .. 512);
+package body DSP.STFT with
+  SPARK_Mode,
+  Refined_State => (Hop_Scratch => Scratch)
+is
+   Scratch : Real_Array (0 .. 512) := (others => 0.0);
 
    function Quantize (A : Real) return Integer is
       DB : constant Real := To_DBFS (A);
-      Q  : constant Real :=
-        Real'Max (0.0, Real'Min (99.0, (DB + 120.0) * 99.0 / 120.0));
+      Q  : Real;
    begin
+      --  Same clamp as (dB + 120) * 99 / 120 limited to 0 .. 99.
+      --  Outside -120 .. 0 the limited value is exactly the endpoint,
+      --  so the multiply is only done where it cannot overflow.
+      if DB <= -120.0 then
+         return 0;
+      elsif DB >= 0.0 then
+         return 99;
+      end if;
+      Q := (DB + 120.0) * 99.0 / 120.0;
+      Q := Real'Max (0.0, Real'Min (99.0, Q));
       return Integer (Q);
    end Quantize;
 
@@ -64,9 +75,23 @@ package body DSP.STFT is
       end if;
 
       Df_S := Real (Rate) / Real (N);
-      K_Max := Natural'Min (Half, Natural (F_Max / Df_S));
+      pragma Assert (N <= 1_024);
+      pragma Assert (Rate >= 8_000);
+      pragma Assert (Df_S >= 7.0);
+      pragma Assert (F_Max <= 2_000.0);
+      if F_Max <= 0.0 or else Df_S <= 0.0 then
+         K_Max := 0;
+      elsif F_Max / Df_S >= Real (Half) then
+         K_Max := Half;
+      else
+         K_Max := Natural (F_Max / Df_S);
+         if K_Max > Half then
+            K_Max := Half;
+         end if;
+      end if;
       DSP.Magnitude.Frame (S, Start, Win, Mag);
       CK := DSP.Carrier.Bin (Carrier_Hz, Df_S, Half);
+      pragma Assert (K_Max <= Half and then Half <= 512);
       Cols := K_Max + 1;
       Df := Df_S;
       Carrier_Bin := CK;
@@ -87,6 +112,7 @@ package body DSP.STFT is
       Frames      : out Natural;
       Df          : out Real;
       Carrier_Bin : out Natural)
+   with Refined_Global => (In_Out => (Scratch, DSP.Magnitude.Work_State))
    is
       N       : constant Natural := Win'Length;
       Half    : constant Natural := N / 2;
@@ -120,6 +146,9 @@ package body DSP.STFT is
       end if;
 
       for Fr in 0 .. Frame_N - 1 loop
+         pragma Loop_Invariant (Row <= Max_Rows);
+         pragma Loop_Invariant (Stride >= 1);
+         pragma Loop_Invariant (Frame_N in 1 .. Max_Rows);
          declare
             Got   : Natural;
             Df_F  : Real;
@@ -144,6 +173,7 @@ package body DSP.STFT is
             Cols := Got;
             if Got > 0 and then Fr mod Stride = 0 and then Row <= WF'Last (1) then
                for K in 0 .. Got - 1 loop
+                  pragma Loop_Invariant (Got <= Max_Cols);
                   WF (Row, K) := Quantize (Scratch (K));
                end loop;
                Row := Row + 1;
