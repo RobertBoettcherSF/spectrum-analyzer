@@ -35,25 +35,11 @@
     margin: 0 0 10px;
     max-width: 46rem;
   }
-  .bar { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
-  button.ctl {
-    font: 600 12px/1 "DejaVu Sans Mono", ui-monospace, "Cascadia Mono", monospace;
-    letter-spacing: 0.03em;
-    color: var(--yellow);
-    background: #12160e;
-    border: 1px solid #5a6;
-    border-radius: 4px;
-    padding: 8px 12px;
-    cursor: pointer;
-  }
-  button.ctl:hover { background: #1c2614; }
-  button.ctl:disabled {
-    cursor: default;
-    color: #ffe57a;
+  button.playing {
     background: #243018;
+    color: #ffe57a;
     border-color: #9c9;
   }
-  button.ctl.ghost { color: #c8c89a; }
   .hint {
     color: #6a7a68;
     font-size: 11px;
@@ -104,6 +90,62 @@
   #cur { color: #6d6; margin: 4px 4px 0; }
   #cur:empty { display: none; }
   #edges { color: var(--yellow); }
+  .bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: stretch;
+    margin: 0 8px 8px;
+  }
+  .drop {
+    position: relative;
+    flex: 1 1 280px;
+    border: 1px dashed #4a6;
+    background: #0c140c;
+    color: #9c9;
+    padding: 10px 12px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
+  .drop.hot { border-color: var(--yellow); color: var(--yellow); }
+  .drop input {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+    font-size: 0;
+  }
+  button, .hz input {
+    font: inherit;
+    background: #141c14;
+    color: var(--yellow);
+    border: 1px solid #4a6;
+    padding: 8px 12px;
+  }
+  button { cursor: pointer; }
+  button:disabled { color: #575; border-color: #343; cursor: default; }
+  button.playing:disabled {
+    color: #ffe57a;
+    background: #243018;
+    border-color: #9c9;
+  }
+  .hz {
+    color: #8c8;
+    font-size: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    justify-content: center;
+  }
+  .hz input { width: 7.2em; }
+  .meta {
+    color: #9c9;
+    font-size: 12px;
+    margin: 0 8px 12px;
+    min-height: 1.2em;
+  }
+  .meta:empty { display: none; }
   .foot {
     color: #566;
     font-size: 11px;
@@ -114,6 +156,7 @@
     body { padding: 10px 6px 20px; }
     h1 { font-size: 16px; }
     .scr { margin: 0 4px 16px; box-shadow: 0 0 0 4px #222, inset 0 0 20px #000; }
+    .bar, .meta { margin-left: 4px; margin-right: 4px; }
     #sp { height: 300px; }
     #wf { height: 200px; }
     #tl { height: 168px; }
@@ -125,13 +168,24 @@
 <div class="wrap">
   <h1>ADA SPECTRUM ANALYZER</h1>
   <p class="lede">Fake mains and a ripple-control signal — Ada does the math in your browser.</p>
-  <div class="bar">
-    <button type="button" class="ctl" id="play">Play demo</button>
-    <button type="button" class="ctl ghost" id="stop" hidden>Stop</button>
-    <button type="button" class="ctl ghost" id="full">Full analysis</button>
-  </div>
   <div class="info" id="info">Loading the Ada WebAssembly module…</div>
   <div id="err" hidden></div>
+  <div class="bar">
+    <div class="drop" id="drop">
+      <span>Drop a 16-bit PCM .wav here, or click to choose. Paste a file too.</span>
+      <input id="file" type="file" accept=".wav,audio/wav,audio/x-wav,audio/wave"
+             aria-label="Choose a 16-bit PCM WAV file">
+    </div>
+    <label class="hz">CARRIER Hz
+      <input id="carrier" type="number" value="216.67" min="0.01" step="0.01"
+             aria-label="Carrier frequency in hertz">
+    </label>
+    <button type="button" id="run" disabled>Run analysis</button>
+    <button type="button" id="play">Play demo</button>
+    <button type="button" id="stop" hidden>Stop</button>
+    <button type="button" id="full">Full analysis</button>
+  </div>
+  <div class="meta" id="meta"></div>
 
   <div class="scr">
     <h2 id="sph">SPECTRUM (dBFS)</h2>
@@ -143,7 +197,7 @@
   <div class="scr">
     <h2 id="wfh">WATERFALL (STFT)</h2>
     <canvas id="wf"></canvas>
-    <p class="hint" id="wfhint">Each new line is one slice Ada just computed. Older slices scroll up.</p>
+    <p class="hint" id="wfhint">Press Play demo. The waterfall scrolls while Ada computes each slice.</p>
   </div>
 
   <div class="scr">
@@ -156,6 +210,7 @@
 </div>
 <script>
 "use strict";
+__WAV_PCM_JS__
 const WASM = "__WASM_BASE64__";
 
 const sp = document.getElementById("sp");
@@ -227,6 +282,8 @@ function mono(c, dpr, px) {
 let data = null;
 let specGeom = null;
 let ada = null;
+let pending = null;
+let shownFile = null;
 let mode = "idle";
 let token = 0;
 let raf = 0;
@@ -237,6 +294,10 @@ let played = 0;
 let playT0 = 0;
 let tlScale = null;
 const wfOffscreen = document.createElement("canvas");
+const runBtn = document.getElementById("run");
+const carrierInput = document.getElementById("carrier");
+const meta = document.getElementById("meta");
+const drop = document.getElementById("drop");
 
 function pull(ada) {
   const nsrc = ada.sa_source_len();
@@ -295,7 +356,9 @@ function pull(ada) {
 function paintInfo() {
   const rbw = (data.rbw / 1e6).toFixed(2);
   const car = hzText(data.carrier);
+  const head = shownFile ? "FILE: " + shownFile.name + "\n" : "";
   info.textContent =
+    head +
     "SRC: " + data.source + "\n" +
     "FS " + data.rate + " Hz | FFT " + data.fft + " Hann | RBW " + rbw +
     " Hz | AVG " + data.avg + " | STFT " + data.stft + "/hop " + data.hop +
@@ -315,7 +378,7 @@ function paintInfo() {
   edgesEl.textContent = el;
   foot.textContent =
     "Computed in Ada (Hann, radix-2 FFT, dBFS, STFT, parabolic peaks, carrier edges), " +
-    "compiled with AdaWebPack 24 to WebAssembly. JavaScript only draws. " +
+    "compiled with AdaWebPack 24 to WebAssembly. JavaScript only reads the WAV and draws. " +
     "FFT self-test peak " + (data.tone / 1e6).toFixed(6) + ".";
 }
 
@@ -448,9 +511,8 @@ function drawWaterfallScroll() {
     }
     oc.putImageData(img, 0, 0);
     const imgH = visible * rowPx;
-    const yTop = plotH - imgH;
     c.imageSmoothingEnabled = false;
-    c.drawImage(off, x0, yTop, plotW, imgH);
+    c.drawImage(off, x0, plotH - imgH, plotW, imgH);
     c.strokeStyle = "#ffd400";
     c.lineWidth = Math.max(1, dpr);
     c.beginPath();
@@ -626,27 +688,110 @@ sp.addEventListener("pointermove", e => {
 sp.addEventListener("pointerleave", () => { cur.textContent = ""; });
 addEventListener("resize", () => { if (data) drawAll(); });
 
-function shell() {
-  const nsrc = ada.sa_source_len();
-  let source = "";
-  for (let i = 1; i <= nsrc; i++) source += String.fromCharCode(ada.sa_source_char(i));
+function showErr(msg) {
+  err.hidden = false;
+  err.textContent = String(msg);
+}
+
+function clearErr() {
+  err.hidden = true;
+  err.textContent = "";
+}
+
+function limits() {
   return {
-    source, spec: new Int32Array(0), markers: [], waterfall: [], timeline: [], edges: [],
-    rate: ada.sa_rate(), fft: ada.sa_fft_n(), stft: ada.sa_stft_n(), hop: ada.sa_hop(),
-    avg: 0, df: ada.sa_df_uhz(), sdf: ada.sa_sdf_uhz(), fmax: ada.sa_fmax_uhz(),
-    carrier: ada.sa_carrier_uhz(), bin: ada.sa_carrier_bin(), dur: ada.sa_duration_us(),
-    floor: -2000, thr: ada.sa_thr_db10(), lo: ada.sa_lo_db10(), hi: ada.sa_hi_db10(),
-    rbw: ada.sa_rbw_uhz(), tone: ada.sa_tone_peak_ppm(), toneOk: ada.sa_tone_ok() === 1
+    minSamples: ada.sa_pcm_min(),
+    maxSamples: ada.sa_pcm_cap(),
+    minRate: ada.sa_pcm_min_rate(),
+    maxRate: ada.sa_pcm_max_rate()
   };
+}
+
+function pcmStatusText(code) {
+  switch (code) {
+    case 1: return "The sample rate is outside the range this analyzer accepts.";
+    case 2: return "This file is too short. It needs at least one full FFT frame.";
+    case 3: return "This file is too long for the analyzer.";
+    case 4: return "The carrier frequency is outside the range this file can track.";
+    default: return "The Ada analyzer rejected the samples (status " + code + ").";
+  }
+}
+
+async function takeFile(file) {
+  if (!file) return;
+  if (!ada) {
+    showErr("The Ada module is still loading.");
+    return;
+  }
+  let buf;
+  try {
+    buf = await file.arrayBuffer();
+  } catch (e) {
+    showErr("Could not read " + (file.name || "that file") + ".\n" + e);
+    return;
+  }
+  const parsed = parseWavPcm(buf, limits());
+  if (!parsed.ok) {
+    pending = null;
+    runBtn.disabled = true;
+    meta.textContent = "";
+    showErr(parsed.error);
+    return;
+  }
+  pending = {
+    name: file.name || "pasted.wav",
+    rate: parsed.rate,
+    frames: parsed.frames,
+    samples: parsed.samples,
+    mixed: parsed.mixed
+  };
+  const secs = (parsed.frames / parsed.rate).toFixed(2);
+  const kind = parsed.mixed ? "16-bit stereo, mixed to mono" : "16-bit mono";
+  meta.textContent =
+    "LOADED " + pending.name + " · " + parsed.rate + " Hz · " +
+    secs + " s · " + parsed.frames + " samples · " + kind;
+  runBtn.disabled = false;
+  clearErr();
+}
+
+function writePcm(samples) {
+  const ptr = ada.sa_pcm_ptr();
+  const cap = ada.sa_pcm_cap();
+  if (!ada.memory || ptr <= 0 || (ptr & 1) !== 0) {
+    throw new Error("The Ada PCM buffer is not available.");
+  }
+  if (samples.length > cap) {
+    throw new Error("The file is longer than the Ada buffer.");
+  }
+  new Int16Array(ada.memory.buffer, ptr, samples.length).set(samples);
+}
+
+function carrierChoice(rate) {
+  const hz = Number(carrierInput.value);
+  const capHz = ada.sa_pcm_fmax_uhz() / 1e6;
+  if (!Number.isFinite(hz) || hz <= 0 || hz >= capHz) {
+    return {
+      ok: false,
+      error: "Carrier must be greater than 0 and below " + capHz.toFixed(0) + " Hz."
+    };
+  }
+  if (hz >= rate / 2) {
+    return {
+      ok: false,
+      error: "Carrier " + hz + " Hz is at or above half the sample rate (" +
+        (rate / 2) + " Hz)."
+    };
+  }
+  return { ok: true, hz };
 }
 
 function titles() {
   const car = data ? hzText(data.carrier) : "";
   sph.textContent = mode === "live" ? "SPECTRUM (dBFS) — LIVE" : "SPECTRUM (dBFS)";
   wfh.textContent = mode === "live" ? "WATERFALL (STFT) — SCROLLING" : "WATERFALL (STFT)";
-  tlh.textContent = "CARRIER " + car + " Hz ON/OFF TIMELINE";
+  if (car) tlh.textContent = "CARRIER " + car + " Hz ON/OFF TIMELINE";
   wfhint.textContent = mode === "frozen"
-    ? "The whole 10 s take, frozen."
+    ? (shownFile ? "The whole file, frozen." : "The whole 10 s take, frozen.")
     : mode === "live"
       ? "Each new line is one slice Ada just computed. Older slices scroll up."
       : "Press Play demo. The waterfall scrolls while Ada computes each slice.";
@@ -654,9 +799,11 @@ function titles() {
 
 function setControls() {
   playBtn.disabled = mode === "live" || mode === "busy";
+  playBtn.classList.toggle("playing", mode === "live");
   playBtn.textContent = mode === "live" ? "Playing demo…" : "Play demo";
   stopBtn.hidden = mode !== "live";
   fullBtn.disabled = mode === "busy";
+  runBtn.disabled = mode === "busy" || !pending;
 }
 
 function cancelMotion() {
@@ -678,17 +825,17 @@ function growScale(db10) {
   }
 }
 
-function paintEdges() {
+function paintEdgesLive() {
   const hopUs = data.hop && data.rate ? 1e6 * data.hop / data.rate : 0;
   const lastPt = data.timeline.length ? data.timeline[data.timeline.length - 1] : null;
   let el = "";
   data.edges.forEach((e, i) => {
-    const open = mode === "live" && lastPt && lastPt.on && i === data.edges.length - 1
+    const open = lastPt && lastPt.on && i === data.edges.length - 1
       && Math.abs(lastPt.t - e.off) <= hopUs * 1.5;
     el += "ON " + sText(e.on).padStart(5) + " s .. " +
       (open ? "  now" : sText(e.off).padStart(5) + " s") + "\n";
   });
-  el += data.edges.length + (mode === "live" ? " pulses so far" : " pulses");
+  el += data.edges.length + " pulses so far";
   edgesEl.textContent = el;
 }
 
@@ -710,20 +857,10 @@ function paintLive(note) {
   }
   text += " MARKERS   after Full analysis\n";
   ro.textContent = text;
-  paintEdges();
+  paintEdgesLive();
   foot.textContent =
     "Ada computes each STFT frame in the WebAssembly module. JavaScript only draws. " +
-    "Full analysis freezes the averaged spectrum, the markers and the levels.";
-}
-
-function blankReadout() {
-  titles();
-  ro.textContent = "MARKERS:\n shown after Full analysis";
-  edgesEl.textContent = "";
-  cur.textContent = "";
-  foot.textContent =
-    "Ada does the math in your browser. JavaScript only draws. " +
-    "Full analysis is the one-shot freeze (the same path a WAV file would use).";
+    "A WAV file is still a one-shot: Run analysis freezes the whole file.";
 }
 
 function armLive() {
@@ -731,11 +868,16 @@ function armLive() {
   liveRows = [];
   tlScale = null;
   played = 0;
+  shownFile = null;
+  if (!data) data = {};
   data.timeline = [];
   data.edges = [];
   data.markers = [];
   data.waterfall = [];
   data.avg = 0;
+  data.source = "";
+  const nsrc = ada.sa_source_len();
+  for (let i = 1; i <= nsrc; i++) data.source += String.fromCharCode(ada.sa_source_char(i));
   data.spec = new Int32Array(ada.sa_spec_bins());
   for (let k = 0; k < data.spec.length; k++) data.spec[k] = ada.sa_spec_db10(k);
   data.df = ada.sa_df_uhz();
@@ -750,10 +892,11 @@ function armLive() {
   data.rate = ada.sa_rate();
   data.hop = ada.sa_hop();
   data.stft = ada.sa_stft_n();
+  data.fft = ada.sa_fft_n();
   data.dur = ada.sa_duration_us();
   data.fmax = ada.sa_fmax_uhz();
   data.carrier = ada.sa_carrier_uhz();
-  data.fft = ada.sa_fft_n();
+  data.floor = ada.sa_floor_db10();
 }
 
 function advanceOne() {
@@ -830,16 +973,10 @@ function tick(now) {
   raf = requestAnimationFrame(tick);
 }
 
-function noteTone() {
-  if (!data.toneOk) {
-    fail("FFT self-test failed. Bin-centred Hann peak was " +
-      (data.tone / 1e6).toFixed(6) + " instead of 1.");
-  }
-}
-
 function playDemo() {
   token++;
   cancelMotion();
+  clearErr();
   try {
     armLive();
   } catch (e) {
@@ -854,7 +991,10 @@ function playDemo() {
     setControls();
     return;
   }
-  noteTone();
+  if (!data.toneOk) {
+    showErr("FFT self-test failed. Bin-centred Hann peak was " +
+      (data.tone / 1e6).toFixed(6) + " instead of 1.");
+  }
   mode = "live";
   setControls();
   playT0 = performance.now();
@@ -876,40 +1016,150 @@ function stopReset() {
     data.spec = new Int32Array(0);
     data.avg = 0;
   }
-  info.textContent = "Stopped. Play demo streams the take. Full analysis freezes the markers and the levels.";
-  blankReadout();
+  info.textContent = "Stopped. Play demo streams the take. Full analysis and a WAV both freeze.";
+  ro.textContent = "MARKERS:\n shown after Full analysis or a WAV";
+  edgesEl.textContent = "";
+  cur.textContent = "";
+  titles();
+  foot.textContent =
+    "Ada does the math in your browser. JavaScript only draws. " +
+    "A WAV file is a one-shot: Run analysis freezes the whole file.";
   drawAll();
   setControls();
 }
 
-// One-shot path. A WAV load would call this same freeze on the whole file.
-async function runFull() {
-  const my = ++token;
+function finishRun(ms) {
   cancelMotion();
-  mode = "busy";
-  setControls();
-  info.textContent = "Running the radix-2 FFT, STFT and carrier tracker in Ada…";
-  await new Promise(r => setTimeout(r, 30));
-  if (my !== token) return;
-  try {
-    ada.sa_analyze();
-    data = pull(ada);
-  } catch (e) {
-    fail("The Ada analyzer trapped.\n" + e);
-    mode = "idle";
-    setControls();
-    return;
-  }
-  if (my !== token) return;
   mode = "frozen";
   liveRows = [];
   tlScale = null;
-  noteTone();
+  data.ms = ms;
+  if (!data.toneOk) {
+    showErr("FFT self-test failed. Bin-centred Hann peak was " +
+      (data.tone / 1e6).toFixed(6) + " instead of 1.");
+  }
   paintInfo();
   titles();
   drawAll();
   setControls();
 }
+
+async function runLoaded() {
+  if (!ada || !pending) return;
+  const car = carrierChoice(pending.rate);
+  if (!car.ok) {
+    showErr(car.error);
+    return;
+  }
+  const my = ++token;
+  cancelMotion();
+  mode = "busy";
+  setControls();
+  clearErr();
+  info.textContent = "Running the radix-2 FFT, STFT and carrier tracker on " +
+    pending.name + "…";
+  await new Promise(r => setTimeout(r, 30));
+  if (my !== token) return;
+  try {
+    writePcm(pending.samples);
+    const t0 = performance.now();
+    const status = ada.sa_analyze_pcm(
+      pending.rate, pending.samples.length, Math.round(car.hz * 1e6));
+    const ms = performance.now() - t0;
+    if (my !== token) return;
+    if (status !== 0) {
+      showErr(pcmStatusText(status));
+      mode = "idle";
+      setControls();
+      info.textContent = "The file was not analyzed.";
+      return;
+    }
+    data = pull(ada);
+    shownFile = pending;
+    finishRun(ms);
+  } catch (e) {
+    fail("The Ada analyzer trapped.\n" + e);
+    mode = "idle";
+    setControls();
+  }
+}
+
+async function runFull() {
+  if (!ada) return;
+  const my = ++token;
+  cancelMotion();
+  mode = "busy";
+  setControls();
+  clearErr();
+  shownFile = null;
+  info.textContent = "Running the radix-2 FFT, STFT and carrier tracker in Ada…";
+  await new Promise(r => setTimeout(r, 30));
+  if (my !== token) return;
+  try {
+    const t0 = performance.now();
+    ada.sa_analyze();
+    const ms = performance.now() - t0;
+    if (my !== token) return;
+    data = pull(ada);
+    finishRun(ms);
+  } catch (e) {
+    fail("The Ada analyzer trapped.\n" + e);
+    mode = "idle";
+    setControls();
+  }
+}
+
+document.getElementById("file").addEventListener("change", e => {
+  const f = e.target.files && e.target.files[0];
+  if (f) takeFile(f);
+  e.target.value = "";
+});
+runBtn.addEventListener("click", () => { runLoaded(); });
+playBtn.addEventListener("click", () => { if (mode !== "live") playDemo(); });
+stopBtn.addEventListener("click", stopReset);
+fullBtn.addEventListener("click", () => { runFull(); });
+
+let dragDepth = 0;
+addEventListener("dragenter", e => {
+  e.preventDefault();
+  dragDepth++;
+  drop.classList.add("hot");
+});
+addEventListener("dragleave", () => {
+  dragDepth--;
+  if (dragDepth <= 0) {
+    dragDepth = 0;
+    drop.classList.remove("hot");
+  }
+});
+addEventListener("dragover", e => { e.preventDefault(); });
+addEventListener("drop", e => {
+  e.preventDefault();
+  dragDepth = 0;
+  drop.classList.remove("hot");
+  const f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
+  if (f) takeFile(f);
+});
+addEventListener("paste", e => {
+  if (e.target && e.target.id === "carrier") return;
+  const cd = e.clipboardData;
+  if (!cd) return;
+  let file = cd.files && cd.files.length ? cd.files[0] : null;
+  if (!file && cd.items) {
+    for (const item of cd.items) {
+      if (item.kind === "file") {
+        file = item.getAsFile();
+        if (file) break;
+      }
+    }
+  }
+  if (!file) {
+    showErr("Paste a .wav file, or use the file picker.");
+    return;
+  }
+  e.preventDefault();
+  takeFile(file);
+});
 
 async function main() {
   try {
@@ -919,14 +1169,15 @@ async function main() {
     fail("Could not instantiate the Ada module.\n" + e);
     return;
   }
-  if (typeof ada.sa_analyze !== "function" || typeof ada.sa_live_begin !== "function") {
-    fail("The module is missing sa_analyze or sa_live_begin.");
+  if (typeof ada.sa_analyze !== "function" || typeof ada.sa_analyze_pcm !== "function"
+      || typeof ada.sa_live_begin !== "function") {
+    fail("The module is missing sa_analyze, sa_analyze_pcm, or sa_live_begin.");
     return;
   }
-  data = shell();
-  playBtn.addEventListener("click", playDemo);
-  stopBtn.addEventListener("click", stopReset);
-  fullBtn.addEventListener("click", runFull);
+  if (!ada.memory) {
+    fail("The module did not export its memory, so a WAV cannot be loaded.");
+    return;
+  }
   playDemo();
 }
 main();

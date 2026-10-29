@@ -1,11 +1,36 @@
 with DSP;
 
---  Runs the demonstration end to end and keeps the results the page reads.
---  Pipeline: demo signal, Hann, power-averaged radix-2 spectrum, peak pick,
---  STFT waterfall, carrier track and on/off edges. A bin-centred sine is
---  measured first so a broken FFT cannot hide behind a plausible drawing.
+--  Runs one buffer end to end and keeps the results the page reads.
+--  Pipeline: Hann, power-averaged radix-2 spectrum, peak pick, STFT
+--  waterfall, carrier track and on/off edges. Run uses the built-in
+--  demonstration waveform. Run_PCM uses samples the page loaded.
+--  A bin-centred sine is measured first so a broken FFT cannot hide
+--  behind a plausible drawing.
 package Analysis is
+   --  One FFT frame, up to about 10 s at 48 kHz. Every accepted length
+   --  fits in DSP.STFT.Max_Rows, so the carrier track is not truncated.
+   Min_Samples : constant := 4_096;
+   Max_Samples : constant := 524_288;
+   Min_Rate    : constant := 8_000;
+   Max_Rate    : constant := 192_000;
+   --  Microhertz fields are 32-bit. 2 kHz keeps a 1 kHz tone inside the
+   --  plot with neighbour bins, and stays under that ceiling. The demo
+   --  plot still stops at 1 kHz.
+   PCM_F_Max   : constant DSP.Real := 2_000.0;
+
    procedure Run;
+
+   procedure Put_PCM (Index : Natural; Amplitude : DSP.Real);
+   --  One sample in about -1 .. 1. Index is 0-based.
+
+   procedure Run_PCM
+     (Rate       : Positive;
+      Count      : Positive;
+      Carrier_Hz : DSP.Real);
+   --  Samples 0 .. Count-1 were stored with Put_PCM.
+
+   function Source_Length return Natural;
+   function Source_Character (Index : Positive) return Character;
 
    function Ready return Boolean;
    function Tone_OK return Boolean;

@@ -3,7 +3,9 @@
 --  to 0 .. 99 over the dBFS range -120 .. 0, which is what the page paints.
 --  The carrier column is not quantised: it stays in dBFS for the edge detector.
 package DSP.STFT is
-   Max_Rows : constant := 512;
+   --  2048 hops cover the longest accepted PCM buffer (524288 samples,
+   --  1024-point window, hop 256 is 2045 frames). The demo uses 309.
+   Max_Rows : constant := 2_048;
    Max_Cols : constant := 513;
 
    type Image is array (0 .. Max_Rows - 1, 0 .. Max_Cols - 1) of Integer;
@@ -50,7 +52,7 @@ package DSP.STFT is
       Df          : out Real;
       Carrier_Bin : out Natural);
    --  Win'Length must be a power of two, at most 1024.
-   --  Rows is the number of waterfall lines actually stored (at most ~400;
-   --  frames are strided when there are more). Frames is every hop, and
-   --  Level (0 .. Frames-1) is the carrier track at that hop.
+   --  Frames is every hop, capped at Max_Rows. Waterfall rows are a
+   --  stride of those frames, about 400 lines. Level (0 .. Frames-1)
+   --  is the carrier track at every hop.
 end DSP.STFT;

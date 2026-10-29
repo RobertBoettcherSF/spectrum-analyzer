@@ -8,10 +8,42 @@
 --    *_ppm    linear magnitude * 1e6 (1000000 means 1.0)
 --
 --  Indexes: markers and edges are 1-based. Spectrum bins, waterfall
---  cells and timeline frames are 0-based. Call sa_analyze first.
+--  cells and timeline frames are 0-based. Call sa_analyze or
+--  sa_analyze_pcm first.
+--
+--  PCM: the page writes little-endian int16 mono samples at sa_pcm_ptr
+--  (sa_pcm_cap of them at most) and calls sa_analyze_pcm. Stereo is mixed
+--  to mono before that write. sa_analyze_pcm returns 0, or
+--  1 rate / 2 too short / 3 too long / 4 carrier.
 package Spectrum_API is
+   PCM_OK          : constant := 0;
+   PCM_Bad_Rate    : constant := 1;
+   PCM_Too_Short   : constant := 2;
+   PCM_Too_Long    : constant := 3;
+   PCM_Bad_Carrier : constant := 4;
+
    procedure Analyze
      with Export, Convention => C, External_Name => "sa_analyze";
+
+   function Analyze_PCM (Rate, Count, Carrier_UHz : Integer) return Integer
+     with Export, Convention => C, External_Name => "sa_analyze_pcm";
+
+   function PCM_Cap return Integer
+     with Export, Convention => C, External_Name => "sa_pcm_cap";
+   function PCM_Min return Integer
+     with Export, Convention => C, External_Name => "sa_pcm_min";
+   function PCM_Min_Rate return Integer
+     with Export, Convention => C, External_Name => "sa_pcm_min_rate";
+   function PCM_Max_Rate return Integer
+     with Export, Convention => C, External_Name => "sa_pcm_max_rate";
+   function PCM_FMax_UHz return Integer
+     with Export, Convention => C, External_Name => "sa_pcm_fmax_uhz";
+   function PCM_Ptr return Integer
+     with Export, Convention => C, External_Name => "sa_pcm_ptr";
+
+   procedure Store (Index : Integer; Value : Integer);
+   --  One int16 sample, for the native smoke test. The page writes the
+   --  buffer at PCM_Ptr instead.
 
    function Ready return Integer
      with Export, Convention => C, External_Name => "sa_ready";

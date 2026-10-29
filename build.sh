@@ -41,14 +41,16 @@ do
   "$T/bin/llvm-gcc" -c --target=wasm32 -O2 -gnat2012 -gnatwa -gnatwe -gnatw.X \
     --RTS="$T/lib/rts-native" -I../../src "$F"
 done
-EXPORTS="sa_analyze sa_ready sa_tone_ok sa_tone_peak_ppm sa_tone_side_ppm \
-sa_tone_far_ppm sa_rate sa_fft_n sa_stft_n sa_hop sa_avg_count sa_spec_bins \
-sa_df_uhz sa_sdf_uhz sa_fmax_uhz sa_carrier_uhz sa_carrier_bin sa_duration_us \
-sa_floor_db10 sa_thr_db10 sa_lo_db10 sa_hi_db10 sa_rbw_uhz sa_spec_db10 \
-sa_markers sa_marker_uhz sa_marker_db10 sa_marker_carrier sa_wf_rows \
-sa_wf_cols sa_wf sa_tl_count sa_tl_us sa_tl_db10 sa_tl_on sa_edges \
-sa_edge_on_us sa_edge_off_us sa_source_len sa_source_char \
-sa_live_begin sa_live_step sa_live_index sa_live_total"
+EXPORTS="sa_analyze sa_analyze_pcm sa_pcm_ptr sa_pcm_cap sa_pcm_min \
+sa_pcm_min_rate sa_pcm_max_rate sa_pcm_fmax_uhz sa_ready sa_tone_ok \
+sa_tone_peak_ppm sa_tone_side_ppm sa_tone_far_ppm sa_rate sa_fft_n sa_stft_n \
+sa_hop sa_avg_count sa_spec_bins sa_df_uhz sa_sdf_uhz sa_fmax_uhz \
+sa_carrier_uhz sa_carrier_bin sa_duration_us sa_floor_db10 sa_thr_db10 \
+sa_lo_db10 sa_hi_db10 sa_rbw_uhz sa_spec_db10 sa_markers sa_marker_uhz \
+sa_marker_db10 sa_marker_carrier sa_wf_rows sa_wf_cols sa_wf sa_tl_count \
+sa_tl_us sa_tl_db10 sa_tl_on sa_edges sa_edge_on_us sa_edge_off_us \
+sa_source_len sa_source_char sa_live_begin sa_live_step sa_live_index \
+sa_live_total"
 set --
 for E in $EXPORTS; do
   set -- "$@" "--export=$E"
@@ -72,10 +74,10 @@ if not keep:
 subprocess.check_call(["ar", "rcs", dst, *keep])
 print(f"rts archive {len(keep)} wasm members, skipped {len(members) - len(keep)}")
 PY
-"$LD" --no-entry --strip-all \
+"$LD" --no-entry --export-memory --strip-all \
   "$@" \
-  -z stack-size=2097152 \
-  --initial-memory=33554432 \
+  -z stack-size=8388608 \
+  --initial-memory=67108864 \
   -o sa.wasm \
   *.o \
   libgnat-wasm.a

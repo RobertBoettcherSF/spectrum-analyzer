@@ -1,7 +1,6 @@
 with Analysis;
-with Demo_Signal;
 with Interfaces;
-with System;
+with System.Storage_Elements;
 
 package body Spectrum_API is
    --  The wasm runtime's last-chance handler prints through this hook and
@@ -34,7 +33,9 @@ package body Spectrum_API is
 
    function UHz (X : Long_Float) return Integer is
    begin
-      if X <= 0.0 or else X > 2_000.0 then
+      --  2147 Hz * 1e6 still fits in a 32-bit integer. The PCM plot
+      --  stops at 2 kHz, which has to be reportable.
+      if X <= 0.0 or else X > 2_147.0 then
          return 0;
       end if;
       return Integer (Long_Float'Rounding (X * 1.0E6));
@@ -63,6 +64,70 @@ package body Spectrum_API is
    begin
       Analysis.Run;
    end Analyze;
+
+   type Sample_Buffer is
+     array (0 .. Analysis.Max_Samples - 1) of Interfaces.Integer_16
+     with Alignment => 8;
+
+   PCM : Sample_Buffer;
+
+   function PCM_Cap return Integer is (Analysis.Max_Samples);
+   function PCM_Min return Integer is (Analysis.Min_Samples);
+   function PCM_Min_Rate return Integer is (Analysis.Min_Rate);
+   function PCM_Max_Rate return Integer is (Analysis.Max_Rate);
+   function PCM_FMax_UHz return Integer is (UHz (Analysis.PCM_F_Max));
+
+   function PCM_Ptr return Integer is
+      use System.Storage_Elements;
+      A : constant Integer_Address := To_Integer (PCM'Address);
+   begin
+      --  The page needs a wasm32 offset. On a 64-bit host the address
+      --  may not fit in Integer; the native test writes via Store.
+      if A > Integer_Address (Integer'Last) then
+         return 0;
+      end if;
+      return Integer (A);
+   end PCM_Ptr;
+
+   procedure Store (Index : Integer; Value : Integer) is
+   begin
+      if Index < 0 or else Index >= Analysis.Max_Samples then
+         return;
+      end if;
+      if Value < Integer (Interfaces.Integer_16'First) then
+         PCM (Index) := Interfaces.Integer_16'First;
+      elsif Value > Integer (Interfaces.Integer_16'Last) then
+         PCM (Index) := Interfaces.Integer_16'Last;
+      else
+         PCM (Index) := Interfaces.Integer_16 (Value);
+      end if;
+   end Store;
+
+   function Analyze_PCM (Rate, Count, Carrier_UHz : Integer) return Integer is
+      Hz : Long_Float;
+   begin
+      if Rate < Analysis.Min_Rate or else Rate > Analysis.Max_Rate then
+         return PCM_Bad_Rate;
+      end if;
+      if Count < Analysis.Min_Samples then
+         return PCM_Too_Short;
+      end if;
+      if Count > Analysis.Max_Samples then
+         return PCM_Too_Long;
+      end if;
+      if Carrier_UHz <= 0 then
+         return PCM_Bad_Carrier;
+      end if;
+      Hz := Long_Float (Carrier_UHz) / 1.0E6;
+      if Hz >= Analysis.PCM_F_Max or else Hz >= Long_Float (Rate) / 2.0 then
+         return PCM_Bad_Carrier;
+      end if;
+      for I in 0 .. Count - 1 loop
+         Analysis.Put_PCM (I, Long_Float (PCM (I)) / 32_768.0);
+      end loop;
+      Analysis.Run_PCM (Rate, Count, Hz);
+      return PCM_OK;
+   end Analyze_PCM;
 
    function Ready return Integer is (Flag (Analysis.Ready));
    function Tone_OK return Integer is (Flag (Analysis.Tone_OK));
@@ -180,16 +245,14 @@ package body Spectrum_API is
       return US (Analysis.Edge_Off (Positive (I)));
    end Edge_Off_US;
 
-   function Source_Len return Integer is (Demo_Signal.Description'Length);
+   function Source_Len return Integer is (Analysis.Source_Length);
 
    function Source_Char (I : Integer) return Integer is
    begin
-      if I < Demo_Signal.Description'First
-        or else I > Demo_Signal.Description'Last
-      then
+      if I < 1 or else I > Analysis.Source_Length then
          return 0;
       end if;
-      return Character'Pos (Demo_Signal.Description (I));
+      return Character'Pos (Analysis.Source_Character (I));
    end Source_Char;
 
    function Live_Begin return Integer is
