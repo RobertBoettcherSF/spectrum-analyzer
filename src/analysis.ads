@@ -29,6 +29,12 @@ package Analysis is
       Carrier_Hz : DSP.Real);
    --  Samples 0 .. Count-1 were stored with Put_PCM.
 
+   function Set_Carrier (Hz : DSP.Real) return Boolean;
+   --  Retargets the on/off track to Hz. Peaks, the averaged spectrum and
+   --  the waterfall picture stay. False when Hz is not inside (0, F_Max)
+   --  and below Nyquist. A later live play of the demo keeps this lock.
+   --  The one-shot demo (Run) still starts at the built-in 216.67 Hz.
+
    function Source_Length return Natural;
    function Source_Character (Index : Positive) return Character;
 

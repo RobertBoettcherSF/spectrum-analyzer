@@ -20,7 +20,12 @@ files shorter than one 4096-point frame or longer than 524288 samples
 (about 10.9 s at 48 kHz, 65.5 s at 8 kHz). Sample rates run from 8 kHz to
 192 kHz. The plot for a file goes to 2 kHz so a 1 kHz tone sits inside
 the peak picker; the demo plot still stops at 1 kHz. The carrier box
-defaults to 216.67 Hz and is the frequency the timeline tracks.
+defaults to 216.67 Hz. Click or tap the spectrum, or type a frequency,
+to drop a readout marker on that bin. It shows the bin frequency and
+dBFS and follows the live spectrum. Clear removes it. The M1–M6 labels
+stay the peak list from a full analysis. Lock carrier retargets the
+on/off timeline to the number in the carrier box. Lock marker retargets
+it to the readout. The demo keeps scrolling, and a WAV stays a one-shot.
 
 **Live page:** https://robertboettchersf.github.io/spectrum-analyzer/
 
@@ -124,5 +129,4 @@ python3 -m http.server 8741 --directory docs
 
 ## Not in this version
 
-Clicking the spectrum to place markers, an F9 dump, and SPARK proofs.
-The carrier is the number in the box. The algorithms are plain Ada.
+An F9 dump and SPARK proofs. The algorithms are plain Ada.

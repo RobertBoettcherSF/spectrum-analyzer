@@ -63,6 +63,27 @@ need(a.sa_edges() === 7, "seven edges");
 need(covers(0.7) && covers(5.2) && covers(9.2), "on intervals");
 need(!covers(1.2) && !covers(4.1), "off gaps");
 
+{
+  const marks = [];
+  for (let i = 1; i <= a.sa_markers(); i++) marks.push(a.sa_marker_uhz(i));
+  const wf = a.sa_wf(100, 28);
+  const thr = a.sa_thr_db10();
+  need(a.sa_set_carrier(0) === 4, "wasm rejects carrier lock 0");
+  need(a.sa_set_carrier(Math.round(50 * 1e6)) === 0, "wasm locks carrier to 50 Hz");
+  need(a.sa_carrier_uhz() === Math.round(50 * 1e6), "wasm reports 50 Hz");
+  need(a.sa_markers() === 6, "wasm lock keeps six peaks");
+  let same = true;
+  for (let i = 1; i <= 6; i++) if (a.sa_marker_uhz(i) !== marks[i - 1]) same = false;
+  need(same, "wasm peak frequencies unchanged");
+  need(a.sa_marker_carrier(1) === 1 && a.sa_marker_carrier(4) === 0,
+    "wasm M1 is the locked carrier");
+  need(a.sa_wf(100, 28) === wf, "wasm lock leaves the waterfall");
+  need(a.sa_set_carrier(Math.round(216.67 * 1e6)) === 0, "wasm locks back to 216.67");
+  need(a.sa_carrier_bin() === 28 && a.sa_edges() === 7, "wasm pulses restored");
+  need(a.sa_thr_db10() === thr, "wasm threshold restored");
+  need(a.sa_marker_carrier(4) === 1, "wasm M4 is the carrier again");
+}
+
 const loose = { minSamples: 1, maxSamples: 100, minRate: 8000, maxRate: 192000 };
 function reject(buf, lim, part, what) {
   const parsed = parseWavPcm(buf, lim);

@@ -28,6 +28,13 @@ package Spectrum_API is
    function Analyze_PCM (Rate, Count, Carrier_UHz : Integer) return Integer
      with Export, Convention => C, External_Name => "sa_analyze_pcm";
 
+   function Set_Carrier (Carrier_UHz : Integer) return Integer
+     with Export, Convention => C, External_Name => "sa_set_carrier";
+   --  Same codes as Analyze_PCM for the carrier: 0, or 4 when the
+   --  frequency is not inside the current plot and below Nyquist.
+   --  Recomputes the on/off timeline already in hand. Peaks and the
+   --  waterfall stay. The next live play of the demo keeps the lock.
+
    function PCM_Cap return Integer
      with Export, Convention => C, External_Name => "sa_pcm_cap";
    function PCM_Min return Integer

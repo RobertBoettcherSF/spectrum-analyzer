@@ -57,6 +57,8 @@ package body Analysis is
    Rate_V     : Positive := Demo_Signal.Rate;
    Count_V    : Positive := Demo_Signal.Sample_Count;
    Carrier_V  : DSP.Real := Demo_Signal.Carrier_Hz;
+   Lock_Hz    : DSP.Real := Demo_Signal.Carrier_Hz;
+   Locked     : Boolean := False;
    FMax_V     : DSP.Real := FMax;
    Source_Buf : String (1 .. 160) := (others => ' ');
    Source_N   : Natural := 0;
@@ -158,6 +160,76 @@ package body Analysis is
          TL_On (Fr) := Track (Fr) > Thr_V;
       end loop;
    end Refresh_Track;
+
+   procedure Retarget_Track (N : Natural) is
+      View : DSP.Real_Array renames Signal (0 .. Count_V - 1);
+      Df_S : DSP.Real;
+   begin
+      Df_S := Sdf_V;
+      if Df_S <= 0.0 then
+         Df_S := DSP.Real (Rate_V) / DSP.Real (STFT_N);
+         Sdf_V := Df_S;
+      end if;
+      Bin_V := DSP.Carrier.Bin (Carrier_V, Df_S, STFT_N / 2);
+      if N = 0 then
+         return;
+      end if;
+
+      for Fr in 0 .. N - 1 loop
+         declare
+            Cols : Natural;
+            Df   : DSP.Real;
+            Bin  : Natural;
+            Lv   : DSP.Real;
+         begin
+            DSP.STFT.Measure_Frame
+              (S           => View,
+               Start       => Fr * Hop,
+               Win         => Win_S,
+               Rate        => Rate_V,
+               F_Max       => FMax_V,
+               Carrier_Hz  => Carrier_V,
+               Mag         => Stft_Mag,
+               Cols        => Cols,
+               Df          => Df,
+               Carrier_Bin => Bin,
+               Level       => Lv);
+            Track (Fr) := Lv;
+            if Cols > 0 then
+               Bin_V := Bin;
+               Sdf_V := Df;
+            end if;
+         end;
+      end loop;
+
+      for I in Mark_Car'Range loop
+         Mark_Car (I) := I <= Mark_N
+           and then abs (Marks (I).F - Carrier_V) < 3.0 * Df_V;
+      end loop;
+      Refresh_Track (N);
+   end Retarget_Track;
+
+   function Set_Carrier (Hz : DSP.Real) return Boolean is
+      N : Natural;
+   begin
+      if Hz <= 0.0 or else Hz >= FMax_V
+        or else Hz >= DSP.Real (Rate_V) / 2.0
+      then
+         return False;
+      end if;
+      Lock_Hz := Hz;
+      Locked := True;
+      Carrier_V := Hz;
+      if Kind_Now = Streaming then
+         N := Next_Fr;
+      elsif Kind_Now = Frozen then
+         N := Frames_N;
+      else
+         return True;
+      end if;
+      Retarget_Track (N);
+      return True;
+   end Set_Carrier;
 
    procedure Compute
      (Rate      : Positive;
@@ -303,7 +375,14 @@ package body Analysis is
       Floor_V := -200.0;
       Rate_V := Demo_Signal.Rate;
       Count_V := Demo_Signal.Sample_Count;
-      Carrier_V := Demo_Signal.Carrier_Hz;
+      --  A lock from a wider PCM plot can sit above the demo's 1 kHz
+      --  span. Keep the built-in carrier in that case; the page applies
+      --  the carrier box after Begin, once this span is in force.
+      if Locked and then Lock_Hz > 0.0 and then Lock_Hz < FMax then
+         Carrier_V := Lock_Hz;
+      else
+         Carrier_V := Demo_Signal.Carrier_Hz;
+      end if;
       FMax_V := FMax;
       for I in Mark_Car'Range loop
          Mark_Car (I) := False;
@@ -353,7 +432,7 @@ package body Analysis is
          Win         => Win_S,
          Rate        => Demo_Signal.Rate,
          F_Max       => FMax,
-         Carrier_Hz  => Demo_Signal.Carrier_Hz,
+         Carrier_Hz  => Carrier_V,
          Mag         => Stft_Mag,
          Cols        => Cols,
          Df          => Df,
