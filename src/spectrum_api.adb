@@ -191,4 +191,13 @@ package body Spectrum_API is
       end if;
       return Character'Pos (Demo_Signal.Description (I));
    end Source_Char;
+
+   function Live_Begin return Integer is
+     (Integer (Analysis.Live_Begin));
+
+   function Live_Step return Integer is (Analysis.Live_Step);
+
+   function Live_Index return Integer is (Analysis.Live_Index);
+
+   function Live_Total return Integer is (Integer (Analysis.Live_Total));
 end Spectrum_API;

@@ -50,4 +50,21 @@ package Analysis is
    function Edge_Count return Natural;
    function Edge_On (I : Positive) return DSP.Real;
    function Edge_Off (I : Positive) return DSP.Real;
+
+   function Live_Begin return Natural;
+   --  Arms the built-in 10 s demo for one play-through. Returns how many
+   --  STFT hops that take is (every hop, no stride). Markers are cleared
+   --  and the waterfall starts empty. The one-shot path is Run.
+
+   function Live_Step return Integer;
+   --  Computes the next hop in Ada: Hann STFT, one waterfall row, the
+   --  carrier level, and the on/off edges of the track so far. Returns
+   --  the 0-based frame just stored, or -1 when the take is finished
+   --  or Begin was not called.
+
+   function Live_Index return Integer;
+   --  Last frame Live_Step stored, or -1 before the first hop.
+
+   function Live_Total return Natural;
+   --  Frame count from the latest Live_Begin, otherwise 0.
 end Analysis;

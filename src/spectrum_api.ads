@@ -97,4 +97,18 @@ package Spectrum_API is
      with Export, Convention => C, External_Name => "sa_source_len";
    function Source_Char (I : Integer) return Integer
      with Export, Convention => C, External_Name => "sa_source_char";
+
+   --  Live play of the built-in demo. sa_analyze remains the one-shot
+   --  full-file path (markers, averaged spectrum, the whole waterfall).
+   --  After sa_live_begin, each sa_live_step fills the same getters the
+   --  page already uses: spectrum, waterfall, timeline and edges, one
+   --  hop at a time. The spectrum during a take is that hop's STFT.
+   function Live_Begin return Integer
+     with Export, Convention => C, External_Name => "sa_live_begin";
+   function Live_Step return Integer
+     with Export, Convention => C, External_Name => "sa_live_step";
+   function Live_Index return Integer
+     with Export, Convention => C, External_Name => "sa_live_index";
+   function Live_Total return Integer
+     with Export, Convention => C, External_Name => "sa_live_total";
 end Spectrum_API;

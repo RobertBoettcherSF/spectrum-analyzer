@@ -9,6 +9,32 @@ package DSP.STFT is
    type Image is array (0 .. Max_Rows - 1, 0 .. Max_Cols - 1) of Integer;
    subtype Level_List is Real_Array (0 .. Max_Rows - 1);
 
+   function Quantize (A : Real) return Integer;
+   --  Waterfall cell, 0 .. 99, for a linear magnitude over -120 .. 0 dBFS.
+
+   function Count_Frames
+     (Length : Natural; Window, Hop : Positive) return Natural;
+   --  Hops Build will take, capped at Max_Rows. A take shorter than
+   --  Window is still one frame.
+
+   procedure Measure_Frame
+     (S           : Real_Array;
+      Start       : Natural;
+      Win         : Real_Array;
+      Rate        : Positive;
+      F_Max       : Real;
+      Carrier_Hz  : Real;
+      Mag         : out Real_Array;
+      Cols        : out Natural;
+      Df          : out Real;
+      Carrier_Bin : out Natural;
+      Level       : out Real);
+   --  One windowed hop. Mag'Length must be at least Win'Length / 2 + 1
+   --  and Mag'First is the DC bin. Cols counts bins from 0 through F_Max.
+   --  Level is the carrier in dBFS (nearest bin and its two neighbours).
+   --  Win'Length must be a power of two, at most 1024; otherwise Cols is
+   --  0 and Level is -200.
+
    procedure Build
      (S           : Real_Array;
       Win         : Real_Array;

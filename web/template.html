@@ -28,6 +28,38 @@
     color: var(--yellow);
     margin: 0 0 6px;
   }
+  .lede {
+    font-size: 13px;
+    line-height: 1.45;
+    color: #e6e0b0;
+    margin: 0 0 10px;
+    max-width: 46rem;
+  }
+  .bar { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+  button.ctl {
+    font: 600 12px/1 "DejaVu Sans Mono", ui-monospace, "Cascadia Mono", monospace;
+    letter-spacing: 0.03em;
+    color: var(--yellow);
+    background: #12160e;
+    border: 1px solid #5a6;
+    border-radius: 4px;
+    padding: 8px 12px;
+    cursor: pointer;
+  }
+  button.ctl:hover { background: #1c2614; }
+  button.ctl:disabled {
+    cursor: default;
+    color: #ffe57a;
+    background: #243018;
+    border-color: #9c9;
+  }
+  button.ctl.ghost { color: #c8c89a; }
+  .hint {
+    color: #6a7a68;
+    font-size: 11px;
+    margin: 6px 2px 0;
+    line-height: 1.4;
+  }
   .info {
     font-size: 12px;
     line-height: 1.45;
@@ -92,19 +124,26 @@
 <body>
 <div class="wrap">
   <h1>ADA SPECTRUM ANALYZER</h1>
+  <p class="lede">Fake mains and a ripple-control signal — Ada does the math in your browser.</p>
+  <div class="bar">
+    <button type="button" class="ctl" id="play">Play demo</button>
+    <button type="button" class="ctl ghost" id="stop" hidden>Stop</button>
+    <button type="button" class="ctl ghost" id="full">Full analysis</button>
+  </div>
   <div class="info" id="info">Loading the Ada WebAssembly module…</div>
   <div id="err" hidden></div>
 
   <div class="scr">
-    <h2>SPECTRUM (dBFS)</h2>
+    <h2 id="sph">SPECTRUM (dBFS)</h2>
     <canvas id="sp"></canvas>
     <pre id="cur"></pre>
     <pre id="ro">MARKERS:</pre>
   </div>
 
   <div class="scr">
-    <h2>WATERFALL (STFT)</h2>
+    <h2 id="wfh">WATERFALL (STFT)</h2>
     <canvas id="wf"></canvas>
+    <p class="hint" id="wfhint">Each new line is one slice Ada just computed. Older slices scroll up.</p>
   </div>
 
   <div class="scr">
@@ -129,6 +168,12 @@ const cur = document.getElementById("cur");
 const edgesEl = document.getElementById("edges");
 const tlh = document.getElementById("tlh");
 const foot = document.getElementById("foot");
+const sph = document.getElementById("sph");
+const wfh = document.getElementById("wfh");
+const wfhint = document.getElementById("wfhint");
+const playBtn = document.getElementById("play");
+const stopBtn = document.getElementById("stop");
+const fullBtn = document.getElementById("full");
 
 function dbText(db10) { return (db10 / 10).toFixed(1); }
 function hzText(uhz) { return (uhz / 1e6).toFixed(2); }
@@ -181,6 +226,17 @@ function mono(c, dpr, px) {
 
 let data = null;
 let specGeom = null;
+let ada = null;
+let mode = "idle";
+let token = 0;
+let raf = 0;
+let holdTimer = 0;
+let liveRows = [];
+let liveTotal = 0;
+let played = 0;
+let playT0 = 0;
+let tlScale = null;
+const wfOffscreen = document.createElement("canvas");
 
 function pull(ada) {
   const nsrc = ada.sa_source_len();
@@ -320,6 +376,14 @@ function drawSpectrum() {
   c.lineTo(cx, y0 + plotH);
   c.stroke();
   c.setLineDash([]);
+  c.shadowBlur = 0;
+  if (mode === "live" && data.timeline.length) {
+    const last = data.timeline[data.timeline.length - 1];
+    c.fillStyle = last.on ? "#ffd400" : "#6a8";
+    c.textAlign = "left";
+    mono(c, dpr, 11);
+    c.fillText(last.on ? "ON" : "off", cx + Math.round(6 * dpr), y0 + Math.round(14 * dpr));
+  }
 
   c.shadowBlur = 0;
   mono(c, dpr, 11);
@@ -347,6 +411,70 @@ function wfColor(v) {
   const g = Math.min(255, Math.max(0, t < 0.5 ? 510 * t : 255));
   const b = Math.max(0, 255 * (0.6 - t) * 1.5);
   return [r | 0, g | 0, b | 0];
+}
+
+function frameTime(i) {
+  return i * data.hop / data.rate + data.stft / (2 * data.rate);
+}
+
+function drawWaterfallScroll() {
+  const { c, w, h, dpr } = prep(wf);
+  const x0 = Math.round(58 * dpr);
+  const plotW = Math.max(10, w - x0 - Math.round(16 * dpr));
+  const plotH = Math.max(10, h - Math.round(22 * dpr));
+  c.fillStyle = "#050805";
+  c.fillRect(0, 0, w, h);
+  const rows = liveRows;
+  const cols = rows.length ? rows[0].length : 0;
+  const rowPx = Math.max(2, Math.round(2 * dpr));
+  const capacity = Math.max(8, Math.floor(plotH / rowPx));
+  const n = rows.length;
+  const start = Math.max(0, n - capacity);
+  const visible = n - start;
+  if (n && cols) {
+    const off = wfOffscreen;
+    off.width = cols;
+    off.height = visible;
+    const oc = off.getContext("2d");
+    const img = oc.createImageData(cols, visible);
+    const pix = img.data;
+    for (let y = 0; y < visible; y++) {
+      const row = rows[start + y];
+      for (let x = 0; x < cols; x++) {
+        const [r, g, b] = wfColor(row[x]);
+        const o = (y * cols + x) * 4;
+        pix[o] = r; pix[o + 1] = g; pix[o + 2] = b; pix[o + 3] = 255;
+      }
+    }
+    oc.putImageData(img, 0, 0);
+    const imgH = visible * rowPx;
+    const yTop = plotH - imgH;
+    c.imageSmoothingEnabled = false;
+    c.drawImage(off, x0, yTop, plotW, imgH);
+    c.strokeStyle = "#ffd400";
+    c.lineWidth = Math.max(1, dpr);
+    c.beginPath();
+    c.moveTo(x0, plotH - Math.max(1, dpr));
+    c.lineTo(x0 + plotW, plotH - Math.max(1, dpr));
+    c.stroke();
+  }
+  c.strokeStyle = "#4a6";
+  c.strokeRect(x0, 0, plotW, plotH);
+  mono(c, dpr, 11);
+  c.fillStyle = "#8c8";
+  c.textAlign = "center";
+  const fmax = data.fmax / 1e6;
+  for (let i = 0; i <= 10; i++) {
+    c.fillText((fmax * i / 10).toFixed(0), x0 + plotW * i / 10, plotH + Math.round(14 * dpr));
+  }
+  c.textAlign = "right";
+  const shown = Math.max(n, 1);
+  const tTop = frameTime(Math.max(0, shown - capacity));
+  const tBot = n ? frameTime(n - 1) : frameTime(0);
+  for (let j = 0; j <= 4; j++) {
+    const t = tTop + (tBot - tTop) * j / 4;
+    c.fillText(t.toFixed(1) + "s", x0 - Math.round(6 * dpr), Math.max(10 * dpr, plotH * j / 4 + 4 * dpr));
+  }
 }
 
 function drawWaterfall() {
@@ -402,19 +530,40 @@ function drawTimeline() {
   c.fillStyle = "#050805";
   c.fillRect(0, 0, w, h);
   grid(c, x0, y0, plotW, plotH, 20, 4);
-  if (!pts.length || dur <= 0) return;
-  let lo = pts[0].db, hi = pts[0].db;
-  for (const p of pts) { if (p.db < lo) lo = p.db; if (p.db > hi) hi = p.db; }
-  const loDb = lo / 10 - 3;
-  const hiDb = hi / 10 + 3;
+  if (!pts.length || dur <= 0) {
+    mono(c, dpr, 11);
+    c.fillStyle = "#8c8";
+    c.textAlign = "center";
+    c.fillText("0.0s", x0, y0 + plotH + Math.round(14 * dpr));
+    c.fillText((Math.max(0, dur) / 1e6).toFixed(1) + "s", x0 + plotW, y0 + plotH + Math.round(14 * dpr));
+    return;
+  }
+  let loDb, hiDb;
+  if (mode !== "frozen" && tlScale) {
+    loDb = tlScale.lo;
+    hiDb = tlScale.hi;
+    const thrDb = data.thr / 10;
+    if (thrDb > loDb - 30 && thrDb < hiDb + 30) {
+      if (thrDb < loDb) loDb = thrDb - 2;
+      if (thrDb > hiDb) hiDb = thrDb + 2;
+    }
+  } else {
+    let lo = pts[0].db, hi = pts[0].db;
+    for (const p of pts) { if (p.db < lo) lo = p.db; if (p.db > hi) hi = p.db; }
+    loDb = lo / 10 - 3;
+    hiDb = hi / 10 + 3;
+  }
   const span = hiDb - loDb || 1;
   const xOf = us => x0 + plotW * us / dur;
   const yOf = db => y0 + plotH * (hiDb - db) / span;
   c.fillStyle = "rgba(255,212,0,0.18)";
   for (let i = 0; i < pts.length; i++) {
     if (!pts[i].on) continue;
+    const hopUs = 1e6 * data.hop / data.rate;
     const x1 = xOf(pts[i].t);
-    const x2 = i + 1 < pts.length ? xOf(pts[i + 1].t) : xOf(dur);
+    const x2 = i + 1 < pts.length
+      ? xOf(pts[i + 1].t)
+      : xOf(Math.min(dur, pts[i].t + hopUs));
     c.fillRect(x1, y0, Math.max(1, x2 - x1), plotH);
   }
   c.strokeStyle = "#ffd400";
@@ -425,6 +574,15 @@ function drawTimeline() {
     if (i === 0) c.moveTo(x, y); else c.lineTo(x, y);
   });
   c.stroke();
+  if (mode === "live") {
+    const x = xOf(pts[pts.length - 1].t);
+    c.strokeStyle = "#6ff";
+    c.lineWidth = Math.max(1, dpr);
+    c.beginPath();
+    c.moveTo(x, y0);
+    c.lineTo(x, y0 + plotH);
+    c.stroke();
+  }
   const thr = data.thr / 10;
   const ty = yOf(thr);
   c.strokeStyle = "#f44";
@@ -450,7 +608,8 @@ function drawTimeline() {
 
 function drawAll() {
   drawSpectrum();
-  drawWaterfall();
+  if (mode === "frozen") drawWaterfall();
+  else drawWaterfallScroll();
   drawTimeline();
 }
 
@@ -459,7 +618,7 @@ sp.addEventListener("pointermove", e => {
   const r = sp.getBoundingClientRect();
   const x = (e.clientX - r.left) * (sp.width / r.width);
   const g = specGeom;
-  if (x < g.x0 || x > g.x0 + g.plotW) { cur.textContent = ""; return; }
+  if (x < g.x0 || x > g.x0 + g.plotW || !data.spec.length) { cur.textContent = ""; return; }
   const f = (x - g.x0) / g.plotW * g.fmax;
   const k = Math.max(0, Math.min(data.spec.length - 1, Math.round(f / g.df)));
   cur.textContent = "CURSOR  " + (k * g.df).toFixed(2) + " Hz   " + dbText(data.spec[k]) + " dBFS";
@@ -467,8 +626,292 @@ sp.addEventListener("pointermove", e => {
 sp.addEventListener("pointerleave", () => { cur.textContent = ""; });
 addEventListener("resize", () => { if (data) drawAll(); });
 
+function shell() {
+  const nsrc = ada.sa_source_len();
+  let source = "";
+  for (let i = 1; i <= nsrc; i++) source += String.fromCharCode(ada.sa_source_char(i));
+  return {
+    source, spec: new Int32Array(0), markers: [], waterfall: [], timeline: [], edges: [],
+    rate: ada.sa_rate(), fft: ada.sa_fft_n(), stft: ada.sa_stft_n(), hop: ada.sa_hop(),
+    avg: 0, df: ada.sa_df_uhz(), sdf: ada.sa_sdf_uhz(), fmax: ada.sa_fmax_uhz(),
+    carrier: ada.sa_carrier_uhz(), bin: ada.sa_carrier_bin(), dur: ada.sa_duration_us(),
+    floor: -2000, thr: ada.sa_thr_db10(), lo: ada.sa_lo_db10(), hi: ada.sa_hi_db10(),
+    rbw: ada.sa_rbw_uhz(), tone: ada.sa_tone_peak_ppm(), toneOk: ada.sa_tone_ok() === 1
+  };
+}
+
+function titles() {
+  const car = data ? hzText(data.carrier) : "";
+  sph.textContent = mode === "live" ? "SPECTRUM (dBFS) — LIVE" : "SPECTRUM (dBFS)";
+  wfh.textContent = mode === "live" ? "WATERFALL (STFT) — SCROLLING" : "WATERFALL (STFT)";
+  tlh.textContent = "CARRIER " + car + " Hz ON/OFF TIMELINE";
+  wfhint.textContent = mode === "frozen"
+    ? "The whole 10 s take, frozen."
+    : mode === "live"
+      ? "Each new line is one slice Ada just computed. Older slices scroll up."
+      : "Press Play demo. The waterfall scrolls while Ada computes each slice.";
+}
+
+function setControls() {
+  playBtn.disabled = mode === "live" || mode === "busy";
+  playBtn.textContent = mode === "live" ? "Playing demo…" : "Play demo";
+  stopBtn.hidden = mode !== "live";
+  fullBtn.disabled = mode === "busy";
+}
+
+function cancelMotion() {
+  cancelAnimationFrame(raf);
+  raf = 0;
+  clearTimeout(holdTimer);
+  holdTimer = 0;
+}
+
+function growScale(db10) {
+  const db = db10 / 10;
+  if (!tlScale) tlScale = { lo: db - 8, hi: db + 8 };
+  if (db < tlScale.lo + 4) tlScale.lo = db - 6;
+  if (db > tlScale.hi - 4) tlScale.hi = db + 6;
+  if (tlScale.hi - tlScale.lo < 16) {
+    const mid = (tlScale.hi + tlScale.lo) / 2;
+    tlScale.lo = mid - 8;
+    tlScale.hi = mid + 8;
+  }
+}
+
+function paintEdges() {
+  const hopUs = data.hop && data.rate ? 1e6 * data.hop / data.rate : 0;
+  const lastPt = data.timeline.length ? data.timeline[data.timeline.length - 1] : null;
+  let el = "";
+  data.edges.forEach((e, i) => {
+    const open = mode === "live" && lastPt && lastPt.on && i === data.edges.length - 1
+      && Math.abs(lastPt.t - e.off) <= hopUs * 1.5;
+    el += "ON " + sText(e.on).padStart(5) + " s .. " +
+      (open ? "  now" : sText(e.off).padStart(5) + " s") + "\n";
+  });
+  el += data.edges.length + (mode === "live" ? " pulses so far" : " pulses");
+  edgesEl.textContent = el;
+}
+
+function paintLive(note) {
+  titles();
+  const last = data.timeline.length ? data.timeline[data.timeline.length - 1] : null;
+  const t = last ? last.t / 1e6 : 0;
+  const db = last ? dbText(last.db) : "  —";
+  const on = last ? (last.on ? "ON" : "off") : "";
+  info.textContent =
+    "PLAYING  " + t.toFixed(2) + " s / " + (data.dur / 1e6).toFixed(2) + " s" +
+    (note ? "  —  " + note : "") + "\n" +
+    "FS " + data.rate + " Hz | STFT " + data.stft + " Hann | hop " + data.hop +
+    " | CARRIER " + hzText(data.carrier) + " Hz  " + db + " dBFS  " + on;
+  let text = "LIVE FRAME\n";
+  if (last) {
+    text += " CARRIER  " + hzText(data.carrier).padStart(8) + " Hz  " +
+      dbText(last.db).padStart(6) + " dBFS  " + (last.on ? "ON" : "off") + "\n";
+  }
+  text += " MARKERS   after Full analysis\n";
+  ro.textContent = text;
+  paintEdges();
+  foot.textContent =
+    "Ada computes each STFT frame in the WebAssembly module. JavaScript only draws. " +
+    "Full analysis freezes the averaged spectrum, the markers and the levels.";
+}
+
+function blankReadout() {
+  titles();
+  ro.textContent = "MARKERS:\n shown after Full analysis";
+  edgesEl.textContent = "";
+  cur.textContent = "";
+  foot.textContent =
+    "Ada does the math in your browser. JavaScript only draws. " +
+    "Full analysis is the one-shot freeze (the same path a WAV file would use).";
+}
+
+function armLive() {
+  liveTotal = ada.sa_live_begin();
+  liveRows = [];
+  tlScale = null;
+  played = 0;
+  data.timeline = [];
+  data.edges = [];
+  data.markers = [];
+  data.waterfall = [];
+  data.avg = 0;
+  data.spec = new Int32Array(ada.sa_spec_bins());
+  for (let k = 0; k < data.spec.length; k++) data.spec[k] = ada.sa_spec_db10(k);
+  data.df = ada.sa_df_uhz();
+  data.sdf = ada.sa_sdf_uhz();
+  data.bin = ada.sa_carrier_bin();
+  data.thr = ada.sa_thr_db10();
+  data.lo = ada.sa_lo_db10();
+  data.hi = ada.sa_hi_db10();
+  data.rbw = ada.sa_rbw_uhz();
+  data.tone = ada.sa_tone_peak_ppm();
+  data.toneOk = ada.sa_tone_ok() === 1;
+  data.rate = ada.sa_rate();
+  data.hop = ada.sa_hop();
+  data.stft = ada.sa_stft_n();
+  data.dur = ada.sa_duration_us();
+  data.fmax = ada.sa_fmax_uhz();
+  data.carrier = ada.sa_carrier_uhz();
+  data.fft = ada.sa_fft_n();
+}
+
+function advanceOne() {
+  const idx = ada.sa_live_step();
+  if (idx < 0) return false;
+  const cols = ada.sa_wf_cols();
+  const row = new Uint8Array(cols);
+  for (let c = 0; c < cols; c++) row[c] = ada.sa_wf(idx, c);
+  liveRows.push(row);
+  const bins = ada.sa_spec_bins();
+  if (data.spec.length !== bins) data.spec = new Int32Array(bins);
+  for (let k = 0; k < bins; k++) data.spec[k] = ada.sa_spec_db10(k);
+  data.df = ada.sa_df_uhz();
+  data.sdf = ada.sa_sdf_uhz();
+  data.bin = ada.sa_carrier_bin();
+  const point = {
+    t: ada.sa_tl_us(idx),
+    db: ada.sa_tl_db10(idx),
+    on: ada.sa_tl_on(idx) === 1
+  };
+  data.timeline.push(point);
+  const thr = ada.sa_thr_db10();
+  if (thr !== data.thr) {
+    data.thr = thr;
+    data.lo = ada.sa_lo_db10();
+    data.hi = ada.sa_hi_db10();
+    for (let i = 0; i < data.timeline.length; i++) {
+      data.timeline[i].on = ada.sa_tl_on(i) === 1;
+    }
+  }
+  const edges = [];
+  const nedge = ada.sa_edges();
+  for (let i = 1; i <= nedge; i++) {
+    edges.push({ on: ada.sa_edge_on_us(i), off: ada.sa_edge_off_us(i) });
+  }
+  data.edges = edges;
+  growScale(point.db);
+  played++;
+  return true;
+}
+
+function tick(now) {
+  if (mode !== "live") return;
+  const hopMs = 1000 * data.hop / data.rate;
+  const want = Math.min(liveTotal, Math.floor((now - playT0) / hopMs) + 1);
+  let budget = 5;
+  let advanced = false;
+  while (played < want && budget-- > 0) {
+    if (!advanceOne()) break;
+    advanced = true;
+  }
+  if (played >= liveTotal) {
+    paintLive("end of the take, looping");
+    drawAll();
+    holdTimer = setTimeout(() => {
+      if (mode !== "live") return;
+      try {
+        armLive();
+      } catch (e) {
+        fail("The Ada analyzer trapped.\n" + e);
+        mode = "idle";
+        setControls();
+        return;
+      }
+      playT0 = performance.now();
+      tick(playT0);
+    }, 700);
+    return;
+  }
+  if (advanced) {
+    paintLive("");
+    drawAll();
+  }
+  raf = requestAnimationFrame(tick);
+}
+
+function noteTone() {
+  if (!data.toneOk) {
+    fail("FFT self-test failed. Bin-centred Hann peak was " +
+      (data.tone / 1e6).toFixed(6) + " instead of 1.");
+  }
+}
+
+function playDemo() {
+  token++;
+  cancelMotion();
+  try {
+    armLive();
+  } catch (e) {
+    fail("The Ada analyzer trapped.\n" + e);
+    mode = "idle";
+    setControls();
+    return;
+  }
+  if (liveTotal <= 0) {
+    fail("The demo signal produced no STFT frames.");
+    mode = "idle";
+    setControls();
+    return;
+  }
+  noteTone();
+  mode = "live";
+  setControls();
+  playT0 = performance.now();
+  tick(playT0);
+}
+
+function stopReset() {
+  token++;
+  cancelMotion();
+  mode = "idle";
+  liveRows = [];
+  tlScale = null;
+  played = 0;
+  if (data) {
+    data.markers = [];
+    data.timeline = [];
+    data.edges = [];
+    data.waterfall = [];
+    data.spec = new Int32Array(0);
+    data.avg = 0;
+  }
+  info.textContent = "Stopped. Play demo streams the take. Full analysis freezes the markers and the levels.";
+  blankReadout();
+  drawAll();
+  setControls();
+}
+
+// One-shot path. A WAV load would call this same freeze on the whole file.
+async function runFull() {
+  const my = ++token;
+  cancelMotion();
+  mode = "busy";
+  setControls();
+  info.textContent = "Running the radix-2 FFT, STFT and carrier tracker in Ada…";
+  await new Promise(r => setTimeout(r, 30));
+  if (my !== token) return;
+  try {
+    ada.sa_analyze();
+    data = pull(ada);
+  } catch (e) {
+    fail("The Ada analyzer trapped.\n" + e);
+    mode = "idle";
+    setControls();
+    return;
+  }
+  if (my !== token) return;
+  mode = "frozen";
+  liveRows = [];
+  tlScale = null;
+  noteTone();
+  paintInfo();
+  titles();
+  drawAll();
+  setControls();
+}
+
 async function main() {
-  let ada;
   try {
     const compiled = await WebAssembly.instantiate(decodeB64(WASM));
     ada = compiled.instance.exports;
@@ -476,28 +919,15 @@ async function main() {
     fail("Could not instantiate the Ada module.\n" + e);
     return;
   }
-  if (typeof ada.sa_analyze !== "function") {
-    fail("The module has no sa_analyze export.");
+  if (typeof ada.sa_analyze !== "function" || typeof ada.sa_live_begin !== "function") {
+    fail("The module is missing sa_analyze or sa_live_begin.");
     return;
   }
-  info.textContent = "Running the radix-2 FFT, STFT and carrier tracker in Ada…";
-  await new Promise(r => setTimeout(r, 30));
-  try {
-    const t0 = performance.now();
-    ada.sa_analyze();
-    const ms = performance.now() - t0;
-    data = pull(ada);
-    data.ms = ms;
-  } catch (e) {
-    fail("The Ada analyzer trapped.\n" + e);
-    return;
-  }
-  if (!data.toneOk) {
-    fail("FFT self-test failed. Bin-centred Hann peak was " +
-      (data.tone / 1e6).toFixed(6) + " instead of 1.");
-  }
-  paintInfo();
-  drawAll();
+  data = shell();
+  playBtn.addEventListener("click", playDemo);
+  stopBtn.addEventListener("click", stopReset);
+  fullBtn.addEventListener("click", runFull);
+  playDemo();
 }
 main();
 </script>

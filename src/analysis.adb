@@ -23,9 +23,16 @@ package body Analysis is
    TL_T     : DSP.Real_Array (0 .. DSP.STFT.Max_Rows - 1);
    TL_DB    : DSP.Real_Array (0 .. DSP.STFT.Max_Rows - 1);
    TL_On    : array (0 .. DSP.STFT.Max_Rows - 1) of Boolean;
-   Marks    : DSP.Peaks.Peak_List;
-   Mark_Car : array (1 .. DSP.Peaks.Max_Peaks) of Boolean;
-   Edges_V  : DSP.Carrier.Edge_List;
+   Marks     : DSP.Peaks.Peak_List;
+   Mark_Car  : array (1 .. DSP.Peaks.Max_Peaks) of Boolean;
+   Edges_V   : DSP.Carrier.Edge_List;
+   Live_Spec : DSP.Real_Array (0 .. STFT_N / 2);
+   Stft_Mag  : DSP.Real_Array (0 .. STFT_N / 2);
+
+   type Kind is (Idle, Streaming, Frozen);
+   Kind_Now : Kind := Idle;
+   Next_Fr  : Natural := 0;
+   Total_Fr : Natural := 0;
 
    Ready_Flag : Boolean := False;
    Tone_Flag  : Boolean := False;
@@ -67,6 +74,36 @@ package body Analysis is
         and then abs (Tone_F) < 1.0E-2;
    end Check_Tone;
 
+   procedure Refresh_Track (Through : Natural) is
+   begin
+      if Through = 0 then
+         Thr_V := 0.0;
+         Lo_V := 0.0;
+         Hi_V := 0.0;
+         Edge_N := 0;
+         Frames_N := 0;
+         return;
+      end if;
+
+      DSP.Carrier.Detect
+        (Level     => Track (0 .. Through - 1),
+         Hop       => Hop,
+         Rate      => Demo_Signal.Rate,
+         Window_N  => STFT_N,
+         Threshold => Thr_V,
+         Lo        => Lo_V,
+         Hi        => Hi_V,
+         Edges     => Edges_V,
+         Count     => Edge_N);
+      Frames_N := Through;
+      for Fr in 0 .. Through - 1 loop
+         TL_T (Fr) := DSP.Carrier.Frame_Time
+           (Fr, Hop, Demo_Signal.Rate, STFT_N);
+         TL_DB (Fr) := Track (Fr);
+         TL_On (Fr) := Track (Fr) > Thr_V;
+      end loop;
+   end Refresh_Track;
+
    procedure Run is
       Half  : constant Natural := FFT_N / 2;
       Pos   : Natural := 0;
@@ -76,6 +113,9 @@ package body Analysis is
       Found : Natural;
    begin
       Ready_Flag := False;
+      Kind_Now := Idle;
+      Next_Fr := 0;
+      Total_Fr := 0;
       Check_Tone;
 
       Demo_Signal.Generate (Signal);
@@ -132,32 +172,113 @@ package body Analysis is
          Df          => Sdf_V,
          Carrier_Bin => Bin_V);
 
-      if Frames_N > 0 then
-         DSP.Carrier.Detect
-           (Level     => Track (0 .. Frames_N - 1),
-            Hop       => Hop,
-            Rate      => Demo_Signal.Rate,
-            Window_N  => STFT_N,
-            Threshold => Thr_V,
-            Lo        => Lo_V,
-            Hi        => Hi_V,
-            Edges     => Edges_V,
-            Count     => Edge_N);
-         for Fr in 0 .. Frames_N - 1 loop
-            TL_T (Fr) := DSP.Carrier.Frame_Time
-              (Fr, Hop, Demo_Signal.Rate, STFT_N);
-            TL_DB (Fr) := Track (Fr);
-            TL_On (Fr) := Track (Fr) > Thr_V;
-         end loop;
-      else
-         Thr_V := 0.0;
-         Lo_V := 0.0;
-         Hi_V := 0.0;
-         Edge_N := 0;
-      end if;
-
+      Refresh_Track (Frames_N);
+      Kind_Now := Frozen;
       Ready_Flag := True;
    end Run;
+
+   function Live_Begin return Natural is
+      N : Natural;
+   begin
+      Ready_Flag := False;
+      Kind_Now := Idle;
+      Check_Tone;
+      Demo_Signal.Generate (Signal);
+      DSP.Window.Hann (Win_S);
+
+      N := DSP.STFT.Count_Frames (Signal'Length, STFT_N, Hop);
+      Total_Fr := N;
+      Next_Fr := 0;
+      Rows_N := 0;
+      Cols_N := 0;
+      Frames_N := 0;
+      Edge_N := 0;
+      Mark_N := 0;
+      Avg_N := 0;
+      Bins_N := 0;
+      Thr_V := 0.0;
+      Lo_V := 0.0;
+      Hi_V := 0.0;
+      Floor_V := -200.0;
+      for I in Mark_Car'Range loop
+         Mark_Car (I) := False;
+      end loop;
+      for K in Live_Spec'Range loop
+         Live_Spec (K) := -200.0;
+      end loop;
+      for I in Track'Range loop
+         Track (I) := -200.0;
+      end loop;
+      for R in 0 .. DSP.STFT.Max_Rows - 1 loop
+         for C in 0 .. DSP.STFT.Max_Cols - 1 loop
+            WF (R, C) := 0;
+         end loop;
+      end loop;
+
+      if N = 0 then
+         return 0;
+      end if;
+
+      --  Same bin geometry Measure_Frame publishes, before the first hop.
+      Df_V := DSP.Real (Demo_Signal.Rate) / DSP.Real (STFT_N);
+      Sdf_V := Df_V;
+      Bin_V := DSP.Carrier.Bin
+        (Demo_Signal.Carrier_Hz, Df_V, STFT_N / 2);
+      Cols_N := Natural'Min (STFT_N / 2, Natural (FMax / Df_V)) + 1;
+      Bins_N := Cols_N;
+      Kind_Now := Streaming;
+      Ready_Flag := True;
+      return N;
+   end Live_Begin;
+
+   function Live_Step return Integer is
+      Fr   : Natural;
+      Cols : Natural;
+      Df   : DSP.Real;
+      Bin  : Natural;
+      Lv   : DSP.Real;
+   begin
+      if Kind_Now /= Streaming or else Next_Fr >= Total_Fr then
+         return -1;
+      end if;
+
+      Fr := Next_Fr;
+      DSP.STFT.Measure_Frame
+        (S           => Signal,
+         Start       => Signal'First + Fr * Hop,
+         Win         => Win_S,
+         Rate        => Demo_Signal.Rate,
+         F_Max       => FMax,
+         Carrier_Hz  => Demo_Signal.Carrier_Hz,
+         Mag         => Stft_Mag,
+         Cols        => Cols,
+         Df          => Df,
+         Carrier_Bin => Bin,
+         Level       => Lv);
+      if Cols = 0 then
+         return -1;
+      end if;
+
+      Track (Fr) := Lv;
+      for K in 0 .. Cols - 1 loop
+         WF (Fr, K) := DSP.STFT.Quantize (Stft_Mag (K));
+         Live_Spec (K) := DSP.To_DBFS (Stft_Mag (K));
+      end loop;
+      Rows_N := Fr + 1;
+      Cols_N := Cols;
+      Bins_N := Cols;
+      Df_V := Df;
+      Sdf_V := Df;
+      Bin_V := Bin;
+      Refresh_Track (Fr + 1);
+      Next_Fr := Fr + 1;
+      return Integer (Fr);
+   end Live_Step;
+
+   function Live_Index return Integer is
+     (if Next_Fr = 0 then -1 else Integer (Next_Fr - 1));
+
+   function Live_Total return Natural is (Total_Fr);
 
    function Ready return Boolean is (Ready_Flag);
    function Tone_OK return Boolean is (Tone_Flag);
@@ -185,7 +306,20 @@ package body Analysis is
    function Rbw return DSP.Real is (1.5 * Df_V);
 
    function Spec_DB (K : Natural) return DSP.Real is
-     (if Ready_Flag and then K <= FFT_N / 2 then Spec (K) else -200.0);
+   begin
+      if not Ready_Flag then
+         return -200.0;
+      elsif Kind_Now = Streaming then
+         if K < Bins_N and then K <= STFT_N / 2 then
+            return Live_Spec (K);
+         end if;
+         return -200.0;
+      elsif K <= FFT_N / 2 then
+         return Spec (K);
+      else
+         return -200.0;
+      end if;
+   end Spec_DB;
 
    function Marker_Count return Natural is (Mark_N);
 

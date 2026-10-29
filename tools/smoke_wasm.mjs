@@ -60,6 +60,45 @@ need(peak(350, 0.2, -450, -360), "350 Hz");
 need(a.sa_edges() === 7, "seven edges");
 need(covers(0.7) && covers(5.2) && covers(9.2), "on intervals");
 need(!covers(1.2) && !covers(4.1), "off gaps");
+
+const savedWf = a.sa_wf(100, 28);
+const savedTl = a.sa_tl_db10(40);
+const savedThr = a.sa_thr_db10();
+const savedEdges = a.sa_edges();
+const savedOn = a.sa_edge_on_us(1);
+let onAt = -1;
+let offAt = -1;
+for (let i = 0; i < a.sa_tl_count(); i++) {
+  if (onAt < 0 && a.sa_tl_on(i) === 1) onAt = i;
+  if (onAt >= 0 && i > onAt + 5 && a.sa_tl_on(i) === 0) { offAt = i; break; }
+}
+need(onAt >= 0 && offAt > onAt, "on hop then off hop");
+const total = a.sa_live_begin();
+need(total === 309, "live begin 309");
+need(a.sa_live_index() === -1, "live index before first hop");
+need(a.sa_markers() === 0, "live clears markers");
+let step = a.sa_live_step();
+need(step === 0, "first hop");
+let onSpec = -2000;
+let offSpec = -2000;
+let last = 0;
+for (;;) {
+  step = a.sa_live_step();
+  if (step < 0) break;
+  if (step === onAt) onSpec = a.sa_spec_db10(a.sa_carrier_bin());
+  else if (step === offAt) offSpec = a.sa_spec_db10(a.sa_carrier_bin());
+  last = step;
+}
+need(last === 308 && a.sa_live_step() === -1, "live stops after the last hop");
+need(onSpec > offSpec + 60, "live spectrum falls when the carrier drops");
+need(a.sa_wf_rows() === 309 && a.sa_wf_cols() === 129, "live waterfall shape");
+need(a.sa_spec_bins() === 129, "live spectrum is one STFT");
+need(a.sa_wf(100, 28) === savedWf, "live waterfall matches one-shot");
+need(a.sa_tl_db10(40) === savedTl, "live level matches one-shot");
+need(a.sa_edges() === savedEdges && a.sa_edge_on_us(1) === savedOn, "live edges");
+need(a.sa_thr_db10() === savedThr, "live threshold");
+need(a.sa_tone_ok() === 1, "tone still ok");
+
 if (failed) {
   console.log("WASM SMOKE FAILED");
   process.exit(1);

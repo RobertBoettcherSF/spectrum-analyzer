@@ -7,7 +7,13 @@ the markers and the carrier edges, then paints them.
 
 The demonstration signal is 10 seconds at 8 kHz: 50 Hz mains, harmonics,
 a little noise, and a 216.67 Hz ripple-control telegram (`1011001110100101`).
-There is no WAV upload in this version.
+The page opens on that take. Ada streams one STFT hop at a time and
+JavaScript only draws, so the waterfall scrolls and the spectrum and the
+carrier timeline move with the signal. It plays through, then loops until
+Stop. **Full analysis** is the one-shot path: the averaged spectrum, the
+markers, the levels and the whole waterfall, then the picture freezes.
+A WAV file is not loaded in this version; that load is the same one-shot
+freeze, not the scrolling demo.
 
 **Live page:** https://robertboettchersf.github.io/spectrum-analyzer/
 
@@ -69,8 +75,8 @@ rather than the CLI’s −45.7, and the threshold is −63.6 rather than −62.
 | `src/dsp-stft.adb` | waterfall frames and the carrier track |
 | `src/dsp-carrier.adb` | threshold and on/off edges |
 | `src/demo_signal.adb` | the 10 s demonstration waveform |
-| `src/analysis.adb` | runs the pipeline and keeps the results |
-| `src/spectrum_api.adb` | C exports the page calls (`sa_*`) |
+| `src/analysis.adb` | one-shot pipeline, and the live hop player |
+| `src/spectrum_api.adb` | C exports the page calls (`sa_*`, `sa_live_*`) |
 | `src/smoke.adb` | native checks, warnings as errors |
 | `web/template.html` | the lab screen; `build.sh` fills in the module |
 | `docs/index.html` | the built page (one file, no CDN) |
@@ -110,5 +116,6 @@ python3 -m http.server 8741 --directory docs
 
 ## Not in this version
 
-WAV drop, clicking or typing marker frequencies, an F9 dump, and SPARK
+WAV drop (full-file analysis would freeze the same way **Full analysis**
+does), clicking or typing marker frequencies, an F9 dump, and SPARK
 proofs. The algorithms are plain Ada.
