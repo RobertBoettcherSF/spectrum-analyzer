@@ -61,6 +61,19 @@
     margin: 0 0 12px;
     white-space: pre-wrap;
   }
+  .session {
+    color: #ffe57a;
+    background: #2a2408;
+    border: 1px solid #665;
+    padding: 8px 10px;
+    margin: 0 0 12px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+  .session[hidden] { display: none; }
+  .session button { padding: 4px 8px; }
   .scr {
     background: var(--panel);
     border: 3px solid #333;
@@ -173,6 +186,11 @@
   <p class="lede">Fake mains and a ripple-control signal — Ada does the math in your browser.</p>
   <div class="info" id="info">Loading the Ada WebAssembly module…</div>
   <div id="err" hidden></div>
+  <div id="session" class="session" hidden>
+    <span>The last session did not end cleanly.</span>
+    <button type="button" id="sessionDl">Download last events</button>
+    <button type="button" id="sessionDismiss">Dismiss</button>
+  </div>
   <div class="bar">
     <div class="drop" id="drop">
       <span>Drop a 16-bit PCM .wav here, or click to choose. Paste a file too.</span>
@@ -194,8 +212,11 @@
     <button type="button" id="play">Play demo</button>
     <button type="button" id="stop" hidden>Stop</button>
     <button type="button" id="full">Full analysis</button>
+    <button type="button" id="feedback" disabled title="Download a JSON report (F9)">Feedback</button>
   </div>
   <div class="meta" id="meta"></div>
+  <p class="hint" id="f9hint">F9 or Feedback downloads a JSON report. Levels, the noise floor and the on/off edges are Ada’s. The readout marker is included when one is set.</p>
+  <p class="hint" id="saved"></p>
 
   <div class="scr">
     <h2 id="sph">SPECTRUM (dBFS)</h2>
@@ -223,7 +244,23 @@
 <script>
 "use strict";
 __WAV_PCM_JS__
+__FEEDBACK_JS__
 const WASM = "__WASM_BASE64__";
+const BUILD = "__BUILD_ID__";
+const store = openStore();
+const session = sessionLoad(store);
+const log = session.log;
+const errors = [];
+let fatal = false;
+let shownMode = "idle";
+
+function remember(msg, ev) {
+  const text = String(msg);
+  errors.push(text);
+  if (errors.length > 50) errors.shift();
+  sessionNote(store, log, ev, text);
+  return text;
+}
 
 const sp = document.getElementById("sp");
 const wf = document.getElementById("wf");
@@ -246,14 +283,24 @@ const wfhint = document.getElementById("wfhint");
 const playBtn = document.getElementById("play");
 const stopBtn = document.getElementById("stop");
 const fullBtn = document.getElementById("full");
+const feedbackBtn = document.getElementById("feedback");
+const sessionBox = document.getElementById("session");
+const savedEl = document.getElementById("saved");
+if (session.unclean) sessionBox.hidden = false;
+sessionBegin(store, session, BUILD);
+addEventListener("pagehide", () => {
+  if (!fatal) sessionCleanExit(store, log);
+});
+setInterval(() => sessionHeartbeat(store), 2000);
 
 function dbText(db10) { return (db10 / 10).toFixed(1); }
 function hzText(uhz) { return (uhz / 1e6).toFixed(2); }
 function sText(us) { return (us / 1e6).toFixed(2); }
 
 function fail(msg) {
+  fatal = true;
   err.hidden = false;
-  err.textContent = String(msg);
+  err.textContent = remember(msg, "wasm trap");
   info.textContent = "The analyzer did not finish.";
 }
 
@@ -756,6 +803,7 @@ function placeMarker(hz) {
   clearErr();
   markerHz = b.hz;
   markerInput.value = b.hz.toFixed(2);
+  sessionNote(store, log, "user marker", { hz: b.hz, db10: b.db });
   setControls();
   drawSpectrum();
 }
@@ -764,6 +812,7 @@ function clearMarker() {
   markerHz = null;
   markerInput.value = "";
   mk.textContent = "";
+  sessionNote(store, log, "user marker", null);
   setControls();
   if (data && data.spec && data.spec.length) drawSpectrum();
 }
@@ -836,6 +885,7 @@ function lockCarrierHz(hz) {
   }
   clearErr();
   carrierInput.value = (ada.sa_carrier_uhz() / 1e6).toFixed(2);
+  sessionNote(store, log, "lock", { uhz: ada.sa_carrier_uhz() });
   if (data && (mode === "live" || mode === "frozen")) {
     reloadTrack();
     if (mode === "frozen") paintInfo();
@@ -904,7 +954,7 @@ addEventListener("resize", () => { if (data) drawAll(); });
 
 function showErr(msg) {
   err.hidden = false;
-  err.textContent = String(msg);
+  err.textContent = remember(msg, "error");
 }
 
 function clearErr() {
@@ -1169,6 +1219,7 @@ function tick(now) {
   if (played >= liveTotal) {
     paintLive("end of the take, looping");
     drawAll();
+    sessionNote(store, log, "loop");
     holdTimer = setTimeout(() => {
       if (mode !== "live") return;
       try {
@@ -1227,7 +1278,9 @@ function playDemo() {
       (data.tone / 1e6).toFixed(6) + " instead of 1.");
   }
   mode = "live";
+  shownMode = "live demo";
   setControls();
+  sessionNote(store, log, "play");
   playT0 = performance.now();
   tick(playT0);
 }
@@ -1236,6 +1289,8 @@ function stopReset() {
   token++;
   cancelMotion();
   mode = "idle";
+  shownMode = "idle";
+  sessionNote(store, log, "stop");
   liveRows = [];
   tlScale = null;
   played = 0;
@@ -1263,6 +1318,7 @@ function stopReset() {
 function finishRun(ms) {
   cancelMotion();
   mode = "frozen";
+  shownMode = shownFile ? "WAV" : "full";
   liveRows = [];
   tlScale = null;
   data.ms = ms;
@@ -1309,6 +1365,11 @@ async function runLoaded() {
     data = pull(ada);
     shownFile = pending;
     finishRun(ms);
+    sessionNote(store, log, "wav", {
+      file: pending.name,
+      rate: pending.rate,
+      frames: pending.frames
+    });
   } catch (e) {
     fail("The Ada analyzer trapped.\n" + e);
     mode = "idle";
@@ -1340,6 +1401,7 @@ async function runFull() {
     if (my !== token) return;
     data = pull(ada);
     finishRun(ms);
+    sessionNote(store, log, "full", { ms: Math.round(ms) });
     if (locked !== 0) {
       showErr("The carrier frequency is outside the range this picture can track.");
     }
@@ -1355,6 +1417,79 @@ document.getElementById("file").addEventListener("change", e => {
   if (f) takeFile(f);
   e.target.value = "";
 });
+function stamp() {
+  return new Date().toISOString().replace(/[:.]/g, "-");
+}
+
+function downloadJson(name, obj) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob(
+    [JSON.stringify(obj, null, 1)],
+    { type: "application/json" }
+  ));
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+
+function userBinNow() {
+  if (markerHz == null || !ada) return null;
+  const onScreen = specBin(markerHz);
+  if (onScreen) return onScreen.k;
+  const df = ada.sa_df_uhz();
+  const bins = ada.sa_spec_bins();
+  if (!df || bins <= 0) return null;
+  const bin = Math.round(markerHz * 1e6 / df);
+  if (bin < 0 || bin >= bins) return null;
+  return bin;
+}
+
+function saveFeedback() {
+  if (!ada) {
+    showErr("The Ada module is still loading.");
+    return;
+  }
+  const name = "spectrum-feedback-" + stamp() + ".json";
+  sessionNote(store, log, "feedback", { mode: shownMode, file: name });
+  const report = feedbackReport(ada, {
+    build: BUILD,
+    mode: shownMode,
+    file: shownFile ? shownFile.name : null,
+    userBin: userBinNow(),
+    errors: errors.slice(),
+    events: log.slice(),
+    browser: navigator.userAgent,
+    screen: [window.innerWidth, window.innerHeight, window.devicePixelRatio || 1]
+  });
+  downloadJson(name, report);
+  savedEl.textContent =
+    "Saved " + name + ". Levels and edges in that file are Ada's integers.";
+}
+
+addEventListener("keydown", e => {
+  if (e.key !== "F9") return;
+  e.preventDefault();
+  saveFeedback();
+});
+feedbackBtn.addEventListener("click", saveFeedback);
+document.getElementById("sessionDl").addEventListener("click", () => {
+  const name = "spectrum-last-events-" + stamp() + ".json";
+  downloadJson(name, {
+    kind: "spectrum-analyzer-last-events",
+    build: BUILD,
+    time: new Date().toISOString(),
+    unclean: true,
+    lastHeartbeat: sessionHeartbeatIso(store),
+    events: session.previous
+  });
+  savedEl.textContent = "Saved " + name + ".";
+});
+document.getElementById("sessionDismiss").addEventListener("click", () => {
+  sessionBox.hidden = true;
+});
+
 runBtn.addEventListener("click", () => { runLoaded(); });
 playBtn.addEventListener("click", () => { if (mode !== "live") playDemo(); });
 stopBtn.addEventListener("click", stopReset);
@@ -1442,6 +1577,8 @@ async function main() {
     fail("The module did not export its memory, so a WAV cannot be loaded.");
     return;
   }
+  feedbackBtn.disabled = false;
+  sessionNote(store, log, "wasm loaded");
   playDemo();
 }
 main();

@@ -26,6 +26,8 @@ dBFS and follows the live spectrum. Clear removes it. The M1–M6 labels
 stay the peak list from a full analysis. Lock carrier retargets the
 on/off timeline to the number in the carrier box. Lock marker retargets
 it to the readout. The demo keeps scrolling, and a WAV stays a one-shot.
+F9, or the Feedback button, downloads a JSON report of the take on
+screen. The readout is included when one is set.
 
 **Live page:** https://robertboettchersf.github.io/spectrum-analyzer/
 
@@ -94,8 +96,9 @@ rather than the CLI’s −45.7, and the threshold is −63.6 rather than −62.
 | `docs/index.html` | the built page (one file, no CDN) |
 | `tools/get-toolchain.sh` | AdaWebPack 24 into `./toolchain` |
 | `tools/wav_pcm.mjs` | 16-bit WAV check; stereo mixed to mono |
-| `tools/embed.py` | base64 of `sa.wasm`, and the WAV reader, into the page |
-| `tools/smoke_wasm.mjs` | the same numeric checks, plus a 1 kHz WAV |
+| `tools/feedback.mjs` | packages Ada's integers into the F9 report |
+| `tools/embed.py` | base64 of `sa.wasm`, the WAV reader and the report, into the page |
+| `tools/smoke_wasm.mjs` | the same numeric checks, a 1 kHz WAV, and the F9 report |
 
 ## Build
 
@@ -127,6 +130,53 @@ Then open `docs/index.html`, or serve the directory:
 python3 -m http.server 8741 --directory docs
 ```
 
+## Feedback
+
+F9, or the Feedback button, downloads `spectrum-feedback-<time>.json`.
+JavaScript only packages integers the module already published. It does
+not recompute a level, a noise floor or an edge. The readout marker
+(click the spectrum, or type Hz) is `userMarker` when one is set, and
+null when it is clear. Its level is that bin from Ada at the moment of
+the download, so a live trace is the level on screen then.
+
+`mode` is `live demo`, `full`, `WAV` or `idle`. `build` is the short git
+commit `embed.py` recorded when it wrote the page. During the scrolling
+demo the M1–M6 list is empty: Ada fills those peaks on a full analysis,
+and until then the noise floor is the unset value, −200 dBFS.
+
+If the last visit did not close cleanly (the tab was killed, or the
+module trapped), the next load offers those events as
+`spectrum-last-events-<time>.json`. A normal close marks the session
+clean and the hint stays hidden.
+
+```json
+{
+ "kind": "spectrum-analyzer-feedback",
+ "build": "…",
+ "mode": "full",
+ "sampleRateHz": 8000,
+ "window": "Hann",
+ "fft": { "n": 4096, "rbwHz": 2.929688, "averages": 39 },
+ "stft": { "n": 1024, "hop": 256, "frames": 309 },
+ "markers": [
+  { "id": "M1", "hz": 49.97788, "dbfs": -5.9, "db10": -59, "carrier": false },
+  { "id": "M4", "hz": 216.671605, "dbfs": -45.6, "db10": -456, "carrier": true }
+ ],
+ "noiseFloorDbfs": -74.5,
+ "noiseFloorDb10": -745,
+ "carrierHz": 216.67,
+ "edges": [ { "onS": 0.48, "offS": 1.056, "onUs": 480000, "offUs": 1056000 } ],
+ "userMarker": null,
+ "errors": [],
+ "events": [ { "ev": "full" } ]
+}
+```
+
+`db10` is tenths of a dBFS and `onUs` / `offUs` are microseconds, both
+straight from Ada. The other marker and edge rows are the same shape.
+A WAV report has `"mode": "WAV"` and the file name; a scrolling demo
+has `"mode": "live demo"`.
+
 ## Not in this version
 
-An F9 dump and SPARK proofs. The algorithms are plain Ada.
+SPARK proofs. The algorithms are plain Ada.
