@@ -129,6 +129,19 @@ package body Spectrum_API is
       return PCM_OK;
    end Analyze_PCM;
 
+   function Set_Carrier (Carrier_UHz : Integer) return Integer is
+      Hz : Long_Float;
+   begin
+      if Carrier_UHz <= 0 then
+         return PCM_Bad_Carrier;
+      end if;
+      Hz := Long_Float (Carrier_UHz) / 1.0E6;
+      if not Analysis.Set_Carrier (Hz) then
+         return PCM_Bad_Carrier;
+      end if;
+      return PCM_OK;
+   end Set_Carrier;
+
    function Ready return Integer is (Flag (Analysis.Ready));
    function Tone_OK return Integer is (Flag (Analysis.Tone_OK));
    function Tone_Peak_PPM return Integer is (PPM (Analysis.Tone_Peak));

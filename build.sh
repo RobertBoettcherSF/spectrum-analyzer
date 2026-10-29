@@ -54,7 +54,7 @@ sa_lo_db10 sa_hi_db10 sa_rbw_uhz sa_spec_db10 sa_markers sa_marker_uhz \
 sa_marker_db10 sa_marker_carrier sa_wf_rows sa_wf_cols sa_wf sa_tl_count \
 sa_tl_us sa_tl_db10 sa_tl_on sa_edges sa_edge_on_us sa_edge_off_us \
 sa_source_len sa_source_char sa_live_begin sa_live_step sa_live_index \
-sa_live_total"
+sa_live_total sa_set_carrier"
 set --
 for E in $EXPORTS; do
   set -- "$@" "--export=$E"

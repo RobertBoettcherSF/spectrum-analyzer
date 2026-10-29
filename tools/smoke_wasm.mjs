@@ -3,6 +3,13 @@
 // usage: node tools/smoke_wasm.mjs obj/wasm/sa.wasm
 import { readFileSync } from "node:fs";
 import { encodeWav, encodeWavPcm16, parseWavPcm } from "./wav_pcm.mjs";
+import {
+  feedbackReport,
+  sessionBegin,
+  sessionCleanExit,
+  sessionLoad,
+  sessionNote
+} from "./feedback.mjs";
 
 const buf = readFileSync(process.argv[2]);
 const { instance } = await WebAssembly.instantiate(buf);
@@ -62,6 +69,65 @@ need(peak(350, 0.2, -450, -360), "350 Hz");
 need(a.sa_edges() === 7, "seven edges");
 need(covers(0.7) && covers(5.2) && covers(9.2), "on intervals");
 need(!covers(1.2) && !covers(4.1), "off gaps");
+
+{
+  const marks = [];
+  for (let i = 1; i <= a.sa_markers(); i++) marks.push(a.sa_marker_uhz(i));
+  const wf = a.sa_wf(100, 28);
+  const thr = a.sa_thr_db10();
+  need(a.sa_set_carrier(0) === 4, "wasm rejects carrier lock 0");
+  need(a.sa_set_carrier(Math.round(50 * 1e6)) === 0, "wasm locks carrier to 50 Hz");
+  need(a.sa_carrier_uhz() === Math.round(50 * 1e6), "wasm reports 50 Hz");
+  need(a.sa_markers() === 6, "wasm lock keeps six peaks");
+  let same = true;
+  for (let i = 1; i <= 6; i++) if (a.sa_marker_uhz(i) !== marks[i - 1]) same = false;
+  need(same, "wasm peak frequencies unchanged");
+  need(a.sa_marker_carrier(1) === 1 && a.sa_marker_carrier(4) === 0,
+    "wasm M1 is the locked carrier");
+  need(a.sa_wf(100, 28) === wf, "wasm lock leaves the waterfall");
+  need(a.sa_set_carrier(Math.round(216.67 * 1e6)) === 0, "wasm locks back to 216.67");
+  need(a.sa_carrier_bin() === 28 && a.sa_edges() === 7, "wasm pulses restored");
+  need(a.sa_thr_db10() === thr, "wasm threshold restored");
+  need(a.sa_marker_carrier(4) === 1, "wasm M4 is the carrier again");
+  const full = feedbackReport(a, {
+    build: "smoke",
+    mode: "full",
+    userBin: null,
+    errors: [],
+    events: [{ ev: "full" }],
+    time: "2026-10-29T00:00:00.000Z"
+  });
+  need(full.kind === "spectrum-analyzer-feedback" && full.build === "smoke", "f9 full build");
+  need(full.mode === "full" && full.file === null, "f9 full mode");
+  need(full.sampleRateHz === 8000 && full.fft.n === 4096 && full.fft.averages === 39, "f9 full fft");
+  need(full.stft.n === 1024 && full.stft.hop === 256 && full.stft.frames === 309, "f9 full stft");
+  need(full.markers.length === 6, "f9 full M1-M6");
+  let marksOk = true;
+  let carrierMarks = 0;
+  for (let i = 1; i <= full.markers.length; i++) {
+    const m = full.markers[i - 1];
+    if (m.id !== "M" + i || m.db10 !== a.sa_marker_db10(i) || m.uhz !== a.sa_marker_uhz(i)) {
+      marksOk = false;
+    }
+    if (m.carrier) carrierMarks++;
+    if (m.carrier !== (a.sa_marker_carrier(i) === 1)) marksOk = false;
+    if (m.dbfs !== m.db10 / 10 || m.hz !== m.uhz / 1e6) marksOk = false;
+  }
+  need(marksOk, "f9 marker levels are Ada's integers");
+  need(carrierMarks === 1 && full.markers[3].carrier, "f9 M4 is the carrier");
+  need(full.edges.length === 7, "f9 seven edges");
+  let edgesOk = true;
+  for (let i = 1; i <= full.edges.length; i++) {
+    const e = full.edges[i - 1];
+    if (e.onUs !== a.sa_edge_on_us(i) || e.offUs !== a.sa_edge_off_us(i)) edgesOk = false;
+    if (e.onS !== e.onUs / 1e6 || e.offS !== e.offUs / 1e6) edgesOk = false;
+  }
+  need(edgesOk, "f9 edges are Ada's integers");
+  need(full.noiseFloorDb10 === a.sa_floor_db10() && full.noiseFloorDbfs === full.noiseFloorDb10 / 10, "f9 floor is Ada's");
+  need(full.carrierUHz === a.sa_carrier_uhz() && full.thresholdDb10 === a.sa_thr_db10(), "f9 carrier and threshold");
+  need(full.userMarker === null, "f9 user marker omitted when unset");
+  need(full.events.length === 1 && full.events[0].ev === "full", "f9 event log is packaged");
+}
 
 const loose = { minSamples: 1, maxSamples: 100, minRate: 8000, maxRate: 192000 };
 function reject(buf, lim, part, what) {
@@ -153,6 +219,35 @@ for (let i = 1; i <= a.sa_markers(); i++) if (a.sa_marker_carrier(i) === 1) carr
 need(carriers === 1 && a.sa_edges() === 0, "one carrier marker, no pulses");
 need(a.sa_carrier_uhz() === 1_000_000_000, "reported carrier is 1000 Hz");
 need(a.sa_hi_db10() >= -80 && a.sa_hi_db10() <= -40, "carrier level near -6 dBFS");
+{
+  const df = a.sa_df_uhz();
+  const bin = Math.round(1_000_000_000 / df);
+  const wavReport = feedbackReport(a, {
+    build: "smoke",
+    mode: "WAV",
+    file: "tone.wav",
+    userBin: bin,
+    errors: [],
+    events: [{ ev: "wav" }],
+    time: "2026-10-29T00:00:00.000Z"
+  });
+  need(wavReport.mode === "WAV" && wavReport.file === "tone.wav", "f9 wav mode");
+  need(wavReport.sampleRateHz === rate && wavReport.durationUs === 1_000_000, "f9 wav rate");
+  need(wavReport.fft.n === 4096 && wavReport.stft.n === 1024 && wavReport.stft.hop === 256, "f9 wav settings");
+  need(wavReport.carrierUHz === 1_000_000_000 && wavReport.carrierHz === 1000, "f9 wav carrier");
+  need(wavReport.noiseFloorDb10 === a.sa_floor_db10(), "f9 wav floor is Ada's");
+  need(wavReport.edges.length === a.sa_edges(), "f9 wav edges are Ada's");
+  let packed = true;
+  let sawTone = false;
+  for (let i = 1; i <= a.sa_markers(); i++) {
+    const m = wavReport.markers[i - 1];
+    if (!m || m.db10 !== a.sa_marker_db10(i) || m.uhz !== a.sa_marker_uhz(i)) packed = false;
+    if (m && Math.abs(m.hz - 1000) < 0.5 && m.db10 === a.sa_marker_db10(i)) sawTone = true;
+  }
+  need(packed && sawTone && wavReport.markers.length === a.sa_markers(), "f9 wav peaks are Ada's");
+  const pin = wavReport.userMarker;
+  need(pin && pin.bin === bin && pin.db10 === a.sa_spec_db10(bin) && pin.uhz === bin * df, "f9 wav user marker");
+}
 }
 
 a.sa_analyze();
@@ -177,13 +272,44 @@ need(step === 0, "first hop");
 let onSpec = -2000;
 let offSpec = -2000;
 let last = 0;
+let liveReport = null;
+let liveDb = 0;
+let liveOn = 0;
+let liveEdges = -1;
+let liveFloor = 0;
+let liveCarrier = 0;
 for (;;) {
   step = a.sa_live_step();
   if (step < 0) break;
   if (step === onAt) onSpec = a.sa_spec_db10(a.sa_carrier_bin());
   else if (step === offAt) offSpec = a.sa_spec_db10(a.sa_carrier_bin());
+  if (step === 40) {
+    const bin = a.sa_carrier_bin();
+    liveDb = a.sa_spec_db10(bin);
+    liveOn = a.sa_edge_on_us(1);
+    liveEdges = a.sa_edges();
+    liveFloor = a.sa_floor_db10();
+    liveCarrier = a.sa_carrier_uhz();
+    liveReport = feedbackReport(a, {
+      build: "smoke",
+      mode: "live demo",
+      userBin: bin,
+      errors: [],
+      events: [{ ev: "play" }],
+      time: "2026-10-29T00:00:00.000Z"
+    });
+  }
   last = step;
 }
+need(liveReport && liveReport.mode === "live demo", "f9 after demo scroll");
+need(liveReport && liveReport.sampleRateHz === 8000, "f9 live rate");
+need(liveReport && liveReport.fft.n === 4096 && liveReport.stft.n === 1024 && liveReport.stft.hop === 256, "f9 live fft/stft");
+need(liveReport && liveReport.markers.length === 0, "f9 live has no averaged peaks yet");
+need(liveReport && liveReport.stft.frames === 41, "f9 live frame count while scrolling");
+need(liveReport && liveEdges >= 1 && liveReport.edges.length === liveEdges && liveReport.edges[0].onUs === liveOn, "f9 live edges are Ada's");
+need(liveReport && liveReport.noiseFloorDb10 === liveFloor && liveFloor === -2000, "f9 live floor is Ada's unset value");
+need(liveReport && liveReport.userMarker && liveReport.userMarker.db10 === liveDb, "f9 live user marker is Ada's");
+need(liveReport && liveReport.carrierUHz === liveCarrier, "f9 live carrier is Ada's");
 need(last === 308 && a.sa_live_step() === -1, "live stops after the last hop");
 need(onSpec > offSpec + 60, "live spectrum falls when the carrier drops");
 need(a.sa_wf_rows() === 309 && a.sa_wf_cols() === 129, "live waterfall shape");
@@ -193,6 +319,40 @@ need(a.sa_tl_db10(40) === savedTl, "live level matches one-shot");
 need(a.sa_edges() === savedEdges && a.sa_edge_on_us(1) === savedOn, "live edges");
 need(a.sa_thr_db10() === savedThr, "live threshold");
 need(a.sa_tone_ok() === 1, "tone still ok");
+
+{
+  function memoryStore() {
+    const kept = new Map();
+    return {
+      getItem(key) { return kept.has(key) ? kept.get(key) : null; },
+      setItem(key, value) { kept.set(key, String(value)); }
+    };
+  }
+  const store = memoryStore();
+  const first = sessionLoad(store);
+  need(!first.unclean && first.previous.length === 0, "fresh session is clean");
+  sessionBegin(store, first, "smoke");
+  sessionNote(store, first.log, "play", { mode: "live demo" });
+  sessionNote(store, first.log, "wasm trap", "unreachable");
+  const second = sessionLoad(store);
+  need(second.unclean, "unclean session is offered on the next load");
+  need(second.previous.some(e => e.ev === "play") && second.previous.some(e => e.ev === "wasm trap"), "last events survive");
+  need(!second.previous.some(e => e.ev === "clean exit"), "unclean log has no clean exit");
+  sessionBegin(store, second, "smoke");
+  sessionCleanExit(store, second.log);
+  const third = sessionLoad(store);
+  need(!third.unclean && third.previous.some(e => e.ev === "clean exit"), "clean exit stays clean");
+  need(third.previous.length <= 200, "event log stays bounded");
+}
+
+{
+  const page = readFileSync(new URL("../web/template.html", import.meta.url), "utf8");
+  need(page.includes('id="feedback"'), "visible Feedback control");
+  need(page.includes('e.key !== "F9"'), "F9 downloads the report");
+  need(page.includes("feedbackReport(ada"), "page packages Ada through feedbackReport");
+  need(page.includes('id="sessionDl"'), "unclean session offers the last events");
+  need(page.includes("__BUILD_ID__"), "build id is filled at embed time");
+}
 
 if (failed) {
   console.log("WASM SMOKE FAILED");

@@ -166,6 +166,59 @@ begin
    Need (Spectrum_API.Lo_DB10 < Spectrum_API.Thr_DB10, "off level below threshold");
 
    declare
+      function U (Hz : Long_Float) return Integer is
+        (Integer (Long_Float'Rounding (Hz * 1.0E6)));
+
+      M_Hz  : array (1 .. 6) of Integer;
+      M_Db  : array (1 .. 6) of Integer;
+      Wf_28 : constant Integer := Spectrum_API.Wf (100, 28);
+      Edges : constant Integer := Spectrum_API.Edges;
+      Thr   : constant Integer := Spectrum_API.Thr_DB10;
+      Bin   : constant Integer := Spectrum_API.Carrier_Bin;
+   begin
+      for I in M_Hz'Range loop
+         M_Hz (I) := Spectrum_API.Marker_UHz (I);
+         M_Db (I) := Spectrum_API.Marker_DB10 (I);
+      end loop;
+
+      Need (Spectrum_API.Set_Carrier (0) = Spectrum_API.PCM_Bad_Carrier,
+            "reject a zero carrier lock");
+      Need (Spectrum_API.Set_Carrier (-1) = Spectrum_API.PCM_Bad_Carrier,
+            "reject a negative carrier lock");
+      Need (Spectrum_API.Set_Carrier (U (1_000.0)) = Spectrum_API.PCM_Bad_Carrier,
+            "reject a carrier at the 1 kHz plot edge");
+      Need (Spectrum_API.Carrier_Bin = Bin, "rejected lock leaves the carrier");
+      Need (Spectrum_API.Edges = Edges, "rejected lock leaves the pulses");
+
+      Need (Spectrum_API.Set_Carrier (U (50.0)) = Spectrum_API.PCM_OK,
+            "lock the carrier to 50 Hz");
+      Need (Spectrum_API.Carrier_UHz = U (50.0), "reported lock is 50 Hz");
+      Need (Spectrum_API.Markers = 6, "lock keeps the six peak labels");
+      for I in M_Hz'Range loop
+         Need (Spectrum_API.Marker_UHz (I) = M_Hz (I)
+                 and then Spectrum_API.Marker_DB10 (I) = M_Db (I),
+               "M" & T (I) & " frequency and level unchanged");
+      end loop;
+      Need (Spectrum_API.Marker_Carrier (1) = 1, "M1 is the locked mains carrier");
+      Need (Spectrum_API.Marker_Carrier (4) = 0, "M4 is no longer the carrier");
+      Need (Spectrum_API.Wf (100, 28) = Wf_28, "lock does not redraw the waterfall");
+      Need (Spectrum_API.Hi_DB10 > -200, "50 Hz track is above the floor");
+      Need (Spectrum_API.Tl_Count = 309, "lock keeps every timeline frame");
+
+      Need (Spectrum_API.Set_Carrier (U (216.67)) = Spectrum_API.PCM_OK,
+            "lock the carrier back to 216.67 Hz");
+      Need (Spectrum_API.Carrier_Bin = 28, "carrier bin 28 restored");
+      Need (Spectrum_API.Edges = 7, "seven pulses restored");
+      Need (Spectrum_API.Thr_DB10 = Thr, "threshold restored");
+      Need (Spectrum_API.Marker_Carrier (4) = 1, "M4 is the carrier again");
+      Need (Spectrum_API.Marker_Carrier (1) = 0, "M1 is not the carrier again");
+      for I in M_Hz'Range loop
+         Need (Spectrum_API.Marker_UHz (I) = M_Hz (I),
+               "M" & T (I) & " still unchanged after restore");
+      end loop;
+   end;
+
+   declare
       use Ada.Numerics.Long_Elementary_Functions;
 
       function U (Hz : Long_Float) return Integer is
@@ -258,6 +311,9 @@ begin
       Last_I    : Integer := -1;
       On_Spec   : Integer := -2_000;
       Off_Spec  : Integer := -2_000;
+
+      function U (Hz : Long_Float) return Integer is
+        (Integer (Long_Float'Rounding (Hz * 1.0E6)));
    begin
       for I in 0 .. Spectrum_API.Tl_Count - 1 loop
          if On_At < 0 and then Spectrum_API.Tl_On (I) = 1 then
@@ -292,6 +348,17 @@ begin
       Need (Last_I = 308, "live plays every hop");
       Need (Spectrum_API.Live_Step = -1, "a step past the end stops");
       Need (Spectrum_API.Live_Index = 308, "live index is the last hop");
+
+      Need (Spectrum_API.Set_Carrier (U (50.0)) = Spectrum_API.PCM_OK,
+            "live lock to 50 Hz");
+      Need (Spectrum_API.Markers = 0, "live lock does not invent peak labels");
+      Need (Spectrum_API.Tl_DB10 (40) > -300, "live 50 Hz track is loud");
+      Need (Spectrum_API.Wf (100, 28) = Saved_Wf,
+            "live lock leaves the waterfall");
+      Need (Spectrum_API.Set_Carrier (U (216.67)) = Spectrum_API.PCM_OK,
+            "live lock back to 216.67 Hz");
+      Need (Spectrum_API.Set_Carrier (0) = Spectrum_API.PCM_Bad_Carrier,
+            "live rejects a zero carrier");
       Need (On_Spec > Off_Spec + 60,
             "live spectrum falls when the carrier drops");
       Need (Spectrum_API.Wf_Rows = 309, "live waterfall has every hop");

@@ -61,6 +61,19 @@
     margin: 0 0 12px;
     white-space: pre-wrap;
   }
+  .session {
+    color: #ffe57a;
+    background: #2a2408;
+    border: 1px solid #665;
+    padding: 8px 10px;
+    margin: 0 0 12px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+  .session[hidden] { display: none; }
+  .session button { padding: 4px 8px; }
   .scr {
     background: var(--panel);
     border: 3px solid #333;
@@ -77,7 +90,7 @@
     letter-spacing: 0.03em;
   }
   canvas { display: block; width: 100%; background: var(--panel); touch-action: pan-y; }
-  #sp { height: 420px; }
+  #sp { height: 420px; cursor: crosshair; touch-action: manipulation; }
   #wf { height: 280px; }
   #tl { height: 200px; }
   pre {
@@ -89,6 +102,8 @@
   }
   #cur { color: #6d6; margin: 4px 4px 0; }
   #cur:empty { display: none; }
+  #mk { color: #7ef9ff; margin: 4px 4px 0; }
+  #mk:empty { display: none; }
   #edges { color: var(--yellow); }
   .bar {
     display: flex;
@@ -122,6 +137,7 @@
     color: var(--yellow);
     border: 1px solid #4a6;
     padding: 8px 12px;
+    min-height: 44px;
   }
   button { cursor: pointer; }
   button:disabled { color: #575; border-color: #343; cursor: default; }
@@ -214,6 +230,11 @@
   <div id="proofPanel" hidden></div>
   <div class="info" id="info">Loading the Ada WebAssembly module…</div>
   <div id="err" hidden></div>
+  <div id="session" class="session" hidden>
+    <span>The last session did not end cleanly.</span>
+    <button type="button" id="sessionDl">Download last events</button>
+    <button type="button" id="sessionDismiss">Dismiss</button>
+  </div>
   <div class="bar">
     <div class="drop" id="drop">
       <span>Drop a 16-bit PCM .wav here, or click to choose. Paste a file too.</span>
@@ -222,18 +243,30 @@
     </div>
     <label class="hz">CARRIER Hz
       <input id="carrier" type="number" value="216.67" min="0.01" step="0.01"
-             aria-label="Carrier frequency in hertz">
+             inputmode="decimal" aria-label="Carrier frequency in hertz">
     </label>
+    <button type="button" id="lock">Lock carrier</button>
+    <label class="hz">MARKER Hz
+      <input id="markerhz" type="number" min="0" step="0.01" inputmode="decimal"
+             placeholder="Hz" aria-label="Marker frequency in hertz">
+    </label>
+    <button type="button" id="lockmk" disabled>Lock marker</button>
+    <button type="button" id="clearmk" disabled>Clear marker</button>
     <button type="button" id="run" disabled>Run analysis</button>
     <button type="button" id="play">Play demo</button>
     <button type="button" id="stop" hidden>Stop</button>
     <button type="button" id="full">Full analysis</button>
+    <button type="button" id="feedback" disabled title="Download a JSON report (F9)">Feedback</button>
   </div>
   <div class="meta" id="meta"></div>
+  <p class="hint" id="f9hint">F9 or Feedback downloads a JSON report. Levels, the noise floor and the on/off edges are Ada’s. The readout marker is included when one is set.</p>
+  <p class="hint" id="saved"></p>
 
   <div class="scr">
     <h2 id="sph">SPECTRUM (dBFS)</h2>
-    <canvas id="sp"></canvas>
+    <canvas id="sp" aria-label="Spectrum. Click or tap to place a readout marker."></canvas>
+    <p class="hint" id="sphint">Click or tap the spectrum, or type Hz. The readout is that bin and follows the live trace. Lock carrier uses the box. Lock marker uses this readout. Clear removes it. M1–M6 stay the peak list.</p>
+    <pre id="mk"></pre>
     <pre id="cur"></pre>
     <pre id="ro">MARKERS:</pre>
   </div>
@@ -255,8 +288,24 @@
 <script>
 "use strict";
 __WAV_PCM_JS__
+__FEEDBACK_JS__
 const WASM = "__WASM_BASE64__";
 const PROOF = __PROOF_JSON__;
+const BUILD = "__BUILD_ID__";
+const store = openStore();
+const session = sessionLoad(store);
+const log = session.log;
+const errors = [];
+let fatal = false;
+let shownMode = "idle";
+
+function remember(msg, ev) {
+  const text = String(msg);
+  errors.push(text);
+  if (errors.length > 50) errors.shift();
+  sessionNote(store, log, ev, text);
+  return text;
+}
 
 const sp = document.getElementById("sp");
 const wf = document.getElementById("wf");
@@ -265,6 +314,11 @@ const info = document.getElementById("info");
 const err = document.getElementById("err");
 const ro = document.getElementById("ro");
 const cur = document.getElementById("cur");
+const mk = document.getElementById("mk");
+const markerInput = document.getElementById("markerhz");
+const lockBtn = document.getElementById("lock");
+const lockMkBtn = document.getElementById("lockmk");
+const clearMkBtn = document.getElementById("clearmk");
 const edgesEl = document.getElementById("edges");
 const tlh = document.getElementById("tlh");
 const foot = document.getElementById("foot");
@@ -274,6 +328,15 @@ const wfhint = document.getElementById("wfhint");
 const playBtn = document.getElementById("play");
 const stopBtn = document.getElementById("stop");
 const fullBtn = document.getElementById("full");
+const feedbackBtn = document.getElementById("feedback");
+const sessionBox = document.getElementById("session");
+const savedEl = document.getElementById("saved");
+if (session.unclean) sessionBox.hidden = false;
+sessionBegin(store, session, BUILD);
+addEventListener("pagehide", () => {
+  if (!fatal) sessionCleanExit(store, log);
+});
+setInterval(() => sessionHeartbeat(store), 2000);
 
 // Proof badge. The summary is baked in at build time from proof/gnatprove.out.
 (function setupProof() {
@@ -325,8 +388,9 @@ function hzText(uhz) { return (uhz / 1e6).toFixed(2); }
 function sText(us) { return (us / 1e6).toFixed(2); }
 
 function fail(msg) {
+  fatal = true;
   err.hidden = false;
-  err.textContent = String(msg);
+  err.textContent = remember(msg, "wasm trap");
   info.textContent = "The analyzer did not finish.";
 }
 
@@ -383,6 +447,8 @@ let liveTotal = 0;
 let played = 0;
 let playT0 = 0;
 let tlScale = null;
+let markerHz = null;
+let pointerDown = null;
 const wfOffscreen = document.createElement("canvas");
 const runBtn = document.getElementById("run");
 const carrierInput = document.getElementById("carrier");
@@ -541,6 +607,31 @@ function drawSpectrum() {
   c.shadowBlur = 0;
   mono(c, dpr, 11);
   c.textAlign = "center";
+  const mark = specBin(markerHz);
+  if (mark) {
+    const x = xOf(mark.hz);
+    const y = yOf(mark.db / 10);
+    c.strokeStyle = "#7ef9ff";
+    c.lineWidth = Math.max(1, 1.25 * dpr);
+    c.beginPath();
+    c.moveTo(x, y0);
+    c.lineTo(x, y0 + plotH);
+    c.stroke();
+    c.fillStyle = "#7ef9ff";
+    c.beginPath();
+    c.moveTo(x, y - 7 * dpr);
+    c.lineTo(x + 5 * dpr, y);
+    c.lineTo(x, y + 7 * dpr);
+    c.lineTo(x - 5 * dpr, y);
+    c.closePath();
+    c.fill();
+    c.textAlign = "left";
+    const label = mark.hz.toFixed(1) + " Hz  " + dbText(mark.db);
+    const lx = Math.min(x + 8 * dpr, x0 + plotW - Math.round(120 * dpr));
+    const nearCarrier = Math.abs(x - cx) < 90 * dpr;
+    c.fillText(label, Math.max(x0 + 4 * dpr, lx),
+      y0 + Math.round((nearCarrier ? 28 : 14) * dpr));
+  }
   let prevX = -1e9;
   data.markers.forEach((m, i) => {
     const x = xOf(m.hz / 1e6);
@@ -556,6 +647,7 @@ function drawSpectrum() {
     c.fillText("M" + (i + 1), x, Math.max(y0 + 11 * dpr, y - (16 * dpr + lift)));
   });
   specGeom = { x0, y0, plotW, plotH, fmax, df, dpr };
+  updateMarkerReadout();
 }
 
 function wfColor(v) {
@@ -765,6 +857,178 @@ function drawAll() {
   drawTimeline();
 }
 
+function specBin(hz) {
+  if (hz == null || !data || !data.spec || !data.spec.length || !data.df) return null;
+  const df = data.df / 1e6;
+  const fmax = data.fmax / 1e6;
+  if (!Number.isFinite(hz) || !Number.isFinite(df) || df <= 0) return null;
+  if (hz < 0 || hz > fmax + df * 0.51) return null;
+  const k = Math.max(0, Math.min(data.spec.length - 1, Math.round(hz / df)));
+  const snapped = k * df;
+  if (snapped > fmax + 1e-3) return null;
+  return { k, hz: snapped, db: data.spec[k] };
+}
+
+function updateMarkerReadout() {
+  const b = specBin(markerHz);
+  if (!b) {
+    mk.textContent = "";
+    return;
+  }
+  mk.textContent =
+    "MARKER  " + b.hz.toFixed(2).padStart(8) + " Hz  " +
+    dbText(b.db).padStart(6) + " dBFS";
+}
+
+function placeMarker(hz) {
+  if (!data || !data.spec || !data.spec.length) {
+    showErr("The spectrum is not on screen yet.");
+    return;
+  }
+  const b = specBin(Number(hz));
+  if (!b) {
+    showErr("Marker must be from 0 to " + (data.fmax / 1e6).toFixed(0) + " Hz.");
+    return;
+  }
+  clearErr();
+  markerHz = b.hz;
+  markerInput.value = b.hz.toFixed(2);
+  sessionNote(store, log, "user marker", { hz: b.hz, db10: b.db });
+  setControls();
+  drawSpectrum();
+}
+
+function clearMarker() {
+  markerHz = null;
+  markerInput.value = "";
+  mk.textContent = "";
+  sessionNote(store, log, "user marker", null);
+  setControls();
+  if (data && data.spec && data.spec.length) drawSpectrum();
+}
+
+function reloadTrack() {
+  data.carrier = ada.sa_carrier_uhz();
+  data.bin = ada.sa_carrier_bin();
+  data.thr = ada.sa_thr_db10();
+  data.lo = ada.sa_lo_db10();
+  data.hi = ada.sa_hi_db10();
+  const ntl = ada.sa_tl_count();
+  const timeline = new Array(ntl);
+  for (let i = 0; i < ntl; i++) {
+    timeline[i] = {
+      t: ada.sa_tl_us(i),
+      db: ada.sa_tl_db10(i),
+      on: ada.sa_tl_on(i) === 1
+    };
+  }
+  data.timeline = timeline;
+  const edges = [];
+  for (let i = 1; i <= ada.sa_edges(); i++) {
+    edges.push({ on: ada.sa_edge_on_us(i), off: ada.sa_edge_off_us(i) });
+  }
+  data.edges = edges;
+  if (data.markers) {
+    for (let i = 0; i < data.markers.length; i++) {
+      data.markers[i].car = ada.sa_marker_carrier(i + 1) === 1;
+    }
+  }
+  if (mode === "live") {
+    tlScale = null;
+    for (const p of data.timeline) growScale(p.db);
+  }
+}
+
+function carrierHzInRange(hz) {
+  const rate = data && data.rate ? data.rate : 8000;
+  const fmax = data && data.fmax ? data.fmax / 1e6 : 1000;
+  const cap = Math.min(fmax, rate / 2);
+  if (!Number.isFinite(hz) || hz <= 0 || hz >= cap) {
+    return {
+      ok: false,
+      error: "Carrier must be greater than 0 and below " + cap.toFixed(0) + " Hz."
+    };
+  }
+  return { ok: true, hz };
+}
+
+function demoCarrierHz() {
+  const hz = Number(carrierInput.value);
+  if (!Number.isFinite(hz) || hz <= 0 || hz >= 1000) {
+    return {
+      ok: false,
+      error: "Carrier must be greater than 0 and below 1000 Hz for the demo."
+    };
+  }
+  return { ok: true, hz };
+}
+
+function lockCarrierHz(hz) {
+  if (!ada) {
+    showErr("The Ada module is still loading.");
+    return false;
+  }
+  const status = ada.sa_set_carrier(Math.round(hz * 1e6));
+  if (status !== 0) {
+    showErr("The carrier frequency is outside the range this picture can track.");
+    return false;
+  }
+  clearErr();
+  carrierInput.value = (ada.sa_carrier_uhz() / 1e6).toFixed(2);
+  sessionNote(store, log, "lock", { uhz: ada.sa_carrier_uhz() });
+  if (data && (mode === "live" || mode === "frozen")) {
+    reloadTrack();
+    if (mode === "frozen") paintInfo();
+    else paintLive("");
+    drawAll();
+  }
+  return true;
+}
+
+function lockFromField() {
+  const parsed = carrierHzInRange(Number(carrierInput.value));
+  if (!parsed.ok) {
+    showErr(parsed.error);
+    return;
+  }
+  lockCarrierHz(parsed.hz);
+}
+
+function lockFromMarker() {
+  if (markerHz == null) {
+    showErr("Click the spectrum or type a marker frequency first.");
+    return;
+  }
+  const parsed = carrierHzInRange(markerHz);
+  if (!parsed.ok) {
+    showErr(parsed.error);
+    return;
+  }
+  carrierInput.value = markerHz.toFixed(2);
+  lockCarrierHz(markerHz);
+}
+
+sp.addEventListener("pointerdown", e => {
+  if (e.pointerType === "mouse" && e.button !== 0) return;
+  pointerDown = { x: e.clientX, y: e.clientY, id: e.pointerId };
+});
+sp.addEventListener("pointerup", e => {
+  if (!pointerDown || pointerDown.id !== e.pointerId) return;
+  const dx = e.clientX - pointerDown.x;
+  const dy = e.clientY - pointerDown.y;
+  pointerDown = null;
+  if (dx * dx + dy * dy > 400) return;
+  if (!data || !specGeom || !data.spec || !data.spec.length) return;
+  const r = sp.getBoundingClientRect();
+  const x = (e.clientX - r.left) * (sp.width / r.width);
+  const y = (e.clientY - r.top) * (sp.height / r.height);
+  const g = specGeom;
+  if (x < g.x0 || x > g.x0 + g.plotW || y < g.y0 || y > g.y0 + g.plotH) return;
+  placeMarker((x - g.x0) / g.plotW * g.fmax);
+});
+sp.addEventListener("pointercancel", e => {
+  if (pointerDown && pointerDown.id === e.pointerId) pointerDown = null;
+});
 sp.addEventListener("pointermove", e => {
   if (!data || !specGeom) return;
   const r = sp.getBoundingClientRect();
@@ -780,7 +1044,7 @@ addEventListener("resize", () => { if (data) drawAll(); });
 
 function showErr(msg) {
   err.hidden = false;
-  err.textContent = String(msg);
+  err.textContent = remember(msg, "error");
 }
 
 function clearErr() {
@@ -888,12 +1152,16 @@ function titles() {
 }
 
 function setControls() {
-  playBtn.disabled = mode === "live" || mode === "busy";
+  const busy = mode === "busy";
+  playBtn.disabled = mode === "live" || busy;
   playBtn.classList.toggle("playing", mode === "live");
   playBtn.textContent = mode === "live" ? "Playing demo…" : "Play demo";
   stopBtn.hidden = mode !== "live";
-  fullBtn.disabled = mode === "busy";
-  runBtn.disabled = mode === "busy" || !pending;
+  fullBtn.disabled = busy;
+  runBtn.disabled = busy || !pending;
+  lockBtn.disabled = busy || !ada;
+  lockMkBtn.disabled = busy || !ada || markerHz == null;
+  clearMkBtn.disabled = markerHz == null;
 }
 
 function cancelMotion() {
@@ -1041,6 +1309,7 @@ function tick(now) {
   if (played >= liveTotal) {
     paintLive("end of the take, looping");
     drawAll();
+    sessionNote(store, log, "loop");
     holdTimer = setTimeout(() => {
       if (mode !== "live") return;
       try {
@@ -1064,11 +1333,24 @@ function tick(now) {
 }
 
 function playDemo() {
+  const car = demoCarrierHz();
+  if (!car.ok) {
+    showErr(car.error);
+    return;
+  }
   token++;
   cancelMotion();
   clearErr();
   try {
     armLive();
+    if (ada.sa_set_carrier(Math.round(car.hz * 1e6)) !== 0) {
+      mode = "idle";
+      setControls();
+      showErr("The carrier frequency is outside the range this picture can track.");
+      return;
+    }
+    data.carrier = ada.sa_carrier_uhz();
+    data.bin = ada.sa_carrier_bin();
   } catch (e) {
     fail("The Ada analyzer trapped.\n" + e);
     mode = "idle";
@@ -1086,7 +1368,9 @@ function playDemo() {
       (data.tone / 1e6).toFixed(6) + " instead of 1.");
   }
   mode = "live";
+  shownMode = "live demo";
   setControls();
+  sessionNote(store, log, "play");
   playT0 = performance.now();
   tick(playT0);
 }
@@ -1095,6 +1379,8 @@ function stopReset() {
   token++;
   cancelMotion();
   mode = "idle";
+  shownMode = "idle";
+  sessionNote(store, log, "stop");
   liveRows = [];
   tlScale = null;
   played = 0;
@@ -1110,6 +1396,7 @@ function stopReset() {
   ro.textContent = "MARKERS:\n shown after Full analysis or a WAV";
   edgesEl.textContent = "";
   cur.textContent = "";
+  updateMarkerReadout();
   titles();
   foot.textContent =
     "Ada does the math in your browser. JavaScript only draws. " +
@@ -1121,6 +1408,7 @@ function stopReset() {
 function finishRun(ms) {
   cancelMotion();
   mode = "frozen";
+  shownMode = shownFile ? "WAV" : "full";
   liveRows = [];
   tlScale = null;
   data.ms = ms;
@@ -1167,6 +1455,11 @@ async function runLoaded() {
     data = pull(ada);
     shownFile = pending;
     finishRun(ms);
+    sessionNote(store, log, "wav", {
+      file: pending.name,
+      rate: pending.rate,
+      frames: pending.frames
+    });
   } catch (e) {
     fail("The Ada analyzer trapped.\n" + e);
     mode = "idle";
@@ -1176,6 +1469,11 @@ async function runLoaded() {
 
 async function runFull() {
   if (!ada) return;
+  const car = demoCarrierHz();
+  if (!car.ok) {
+    showErr(car.error);
+    return;
+  }
   const my = ++token;
   cancelMotion();
   mode = "busy";
@@ -1188,10 +1486,15 @@ async function runFull() {
   try {
     const t0 = performance.now();
     ada.sa_analyze();
+    const locked = ada.sa_set_carrier(Math.round(car.hz * 1e6));
     const ms = performance.now() - t0;
     if (my !== token) return;
     data = pull(ada);
     finishRun(ms);
+    sessionNote(store, log, "full", { ms: Math.round(ms) });
+    if (locked !== 0) {
+      showErr("The carrier frequency is outside the range this picture can track.");
+    }
   } catch (e) {
     fail("The Ada analyzer trapped.\n" + e);
     mode = "idle";
@@ -1204,10 +1507,106 @@ document.getElementById("file").addEventListener("change", e => {
   if (f) takeFile(f);
   e.target.value = "";
 });
+function stamp() {
+  return new Date().toISOString().replace(/[:.]/g, "-");
+}
+
+function downloadJson(name, obj) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob(
+    [JSON.stringify(obj, null, 1)],
+    { type: "application/json" }
+  ));
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+
+function userBinNow() {
+  if (markerHz == null || !ada) return null;
+  const onScreen = specBin(markerHz);
+  if (onScreen) return onScreen.k;
+  const df = ada.sa_df_uhz();
+  const bins = ada.sa_spec_bins();
+  if (!df || bins <= 0) return null;
+  const bin = Math.round(markerHz * 1e6 / df);
+  if (bin < 0 || bin >= bins) return null;
+  return bin;
+}
+
+function saveFeedback() {
+  if (!ada) {
+    showErr("The Ada module is still loading.");
+    return;
+  }
+  const name = "spectrum-feedback-" + stamp() + ".json";
+  sessionNote(store, log, "feedback", { mode: shownMode, file: name });
+  const report = feedbackReport(ada, {
+    build: BUILD,
+    mode: shownMode,
+    file: shownFile ? shownFile.name : null,
+    userBin: userBinNow(),
+    errors: errors.slice(),
+    events: log.slice(),
+    browser: navigator.userAgent,
+    screen: [window.innerWidth, window.innerHeight, window.devicePixelRatio || 1]
+  });
+  report.proof = PROOF;
+  downloadJson(name, report);
+  savedEl.textContent =
+    "Saved " + name + ". Levels and edges in that file are Ada's integers.";
+}
+
+addEventListener("keydown", e => {
+  if (e.key !== "F9") return;
+  e.preventDefault();
+  saveFeedback();
+});
+feedbackBtn.addEventListener("click", saveFeedback);
+document.getElementById("sessionDl").addEventListener("click", () => {
+  const name = "spectrum-last-events-" + stamp() + ".json";
+  downloadJson(name, {
+    kind: "spectrum-analyzer-last-events",
+    build: BUILD,
+    time: new Date().toISOString(),
+    unclean: true,
+    lastHeartbeat: sessionHeartbeatIso(store),
+    events: session.previous
+  });
+  savedEl.textContent = "Saved " + name + ".";
+});
+document.getElementById("sessionDismiss").addEventListener("click", () => {
+  sessionBox.hidden = true;
+});
+
 runBtn.addEventListener("click", () => { runLoaded(); });
 playBtn.addEventListener("click", () => { if (mode !== "live") playDemo(); });
 stopBtn.addEventListener("click", stopReset);
 fullBtn.addEventListener("click", () => { runFull(); });
+lockBtn.addEventListener("click", lockFromField);
+lockMkBtn.addEventListener("click", lockFromMarker);
+clearMkBtn.addEventListener("click", clearMarker);
+carrierInput.addEventListener("keydown", e => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    lockFromField();
+  }
+});
+markerInput.addEventListener("keydown", e => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    placeMarker(markerInput.value);
+  }
+});
+markerInput.addEventListener("change", () => {
+  if (markerInput.value.trim() === "") {
+    clearMarker();
+    return;
+  }
+  placeMarker(markerInput.value);
+});
 
 let dragDepth = 0;
 addEventListener("dragenter", e => {
@@ -1231,7 +1630,7 @@ addEventListener("drop", e => {
   if (f) takeFile(f);
 });
 addEventListener("paste", e => {
-  if (e.target && e.target.id === "carrier") return;
+  if (e.target && (e.target.id === "carrier" || e.target.id === "markerhz")) return;
   const cd = e.clipboardData;
   if (!cd) return;
   let file = cd.files && cd.files.length ? cd.files[0] : null;
@@ -1251,42 +1650,6 @@ addEventListener("paste", e => {
   takeFile(file);
 });
 
-function downloadJson(name, obj) {
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(new Blob([JSON.stringify(obj, null, 1)], {type: "application/json"}));
-  a.download = name;
-  a.click();
-}
-
-// F9 writes a feedback file: the build's proof summary plus the take on screen.
-addEventListener("keydown", e => {
-  if (e.key !== "F9") return;
-  e.preventDefault();
-  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
-  downloadJson("feedback-" + stamp + ".json", {
-    version: "spark-1",
-    commit: PROOF.commit,
-    built: PROOF.built,
-    gnatprove: PROOF.gnatprove,
-    time: new Date().toISOString(),
-    browser: navigator.userAgent,
-    screen: [innerWidth, innerHeight, devicePixelRatio],
-    mode: mode,
-    source: data && data.source,
-    rate: data && data.rate,
-    fft: data && data.fft,
-    stft: data && data.stft,
-    hop: data && data.hop,
-    carrier: data && data.carrier,
-    tone: data && data.tone,
-    toneOk: data && data.toneOk,
-    markers: data && data.markers,
-    edges: data && data.edges,
-    proof: PROOF,
-    errors: pageErrors
-  });
-});
-
 async function main() {
   try {
     const compiled = await WebAssembly.instantiate(decodeB64(WASM));
@@ -1296,14 +1659,17 @@ async function main() {
     return;
   }
   if (typeof ada.sa_analyze !== "function" || typeof ada.sa_analyze_pcm !== "function"
-      || typeof ada.sa_live_begin !== "function") {
-    fail("The module is missing sa_analyze, sa_analyze_pcm, or sa_live_begin.");
+      || typeof ada.sa_live_begin !== "function"
+      || typeof ada.sa_set_carrier !== "function") {
+    fail("The module is missing sa_analyze, sa_analyze_pcm, sa_live_begin, or sa_set_carrier.");
     return;
   }
   if (!ada.memory) {
     fail("The module did not export its memory, so a WAV cannot be loaded.");
     return;
   }
+  feedbackBtn.disabled = false;
+  sessionNote(store, log, "wasm loaded");
   playDemo();
 }
 main();
