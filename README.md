@@ -9,15 +9,13 @@ The demonstration signal is 10 seconds at 8 kHz: 50 Hz mains, harmonics,
 a little noise, and a 216.67 Hz ripple-control telegram (`1011001110100101`).
 There is no WAV upload in this version.
 
-**Open the page:** [Ada Spectrum Analyzer](http://127.0.0.1:8741/)
+**Live page:** https://robertboettchersf.github.io/spectrum-analyzer/
 
-That address is the local server for this draft (`python3 -m http.server`
-on the `docs/` directory). The module is embedded in the HTML, so the same
-file also opens directly as `docs/index.html` with no server. This draft is
-not on GitHub, so GitHub Pages is not switched on. The page is already at
-`docs/index.html`; after the tree is published, set Pages to deploy from
-the `docs/` folder on the default branch. `docs/.nojekyll` is included so
-Jekyll leaves the file alone.
+Repo: https://github.com/RobertBoettcherSF/spectrum-analyzer
+
+The module is embedded in the HTML, so `docs/index.html` also opens with no
+server. Pages deploys from the `docs/` folder on `main` (`docs/.nojekyll`
+keeps Jekyll from touching the file).
 
 ## What the Ada core reports
 
