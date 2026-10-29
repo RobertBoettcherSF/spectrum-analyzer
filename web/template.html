@@ -380,9 +380,6 @@ setInterval(() => sessionHeartbeat(store), 2000);
     .catch(e => { servedEl.textContent = "served commit: unknown (GitHub API: " + e + ")"; });
 })();
 
-const pageErrors = [];
-addEventListener("error", e => { pageErrors.push(String(e.message || e)); });
-
 function dbText(db10) { return (db10 / 10).toFixed(1); }
 function hzText(uhz) { return (uhz / 1e6).toFixed(2); }
 function sText(us) { return (us / 1e6).toFixed(2); }
