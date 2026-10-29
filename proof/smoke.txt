@@ -1,3 +1,5 @@
+Native smoke (demo peaks, carrier edges, carrier lock):
+
 tone peak/side/far ppm 1000000 500000 0
 rate 8000
 fft 4096
@@ -70,6 +72,37 @@ edges 7
   ok  threshold between off and on
   ok  on level above threshold
   ok  off level below threshold
+  ok  reject a zero carrier lock
+  ok  reject a negative carrier lock
+  ok  reject a carrier at the 1 kHz plot edge
+  ok  rejected lock leaves the carrier
+  ok  rejected lock leaves the pulses
+  ok  lock the carrier to 50 Hz
+  ok  reported lock is 50 Hz
+  ok  lock keeps the six peak labels
+  ok  M1 frequency and level unchanged
+  ok  M2 frequency and level unchanged
+  ok  M3 frequency and level unchanged
+  ok  M4 frequency and level unchanged
+  ok  M5 frequency and level unchanged
+  ok  M6 frequency and level unchanged
+  ok  M1 is the locked mains carrier
+  ok  M4 is no longer the carrier
+  ok  lock does not redraw the waterfall
+  ok  50 Hz track is above the floor
+  ok  lock keeps every timeline frame
+  ok  lock the carrier back to 216.67 Hz
+  ok  carrier bin 28 restored
+  ok  seven pulses restored
+  ok  threshold restored
+  ok  M4 is the carrier again
+  ok  M1 is not the carrier again
+  ok  M1 still unchanged after restore
+  ok  M2 still unchanged after restore
+  ok  M3 still unchanged after restore
+  ok  M4 still unchanged after restore
+  ok  M5 still unchanged after restore
+  ok  M6 still unchanged after restore
   ok  reject sample rate below 8 kHz
   ok  rejected PCM leaves the demo
   ok  reject a short buffer
@@ -98,6 +131,12 @@ pcm 1 kHz
   ok  live plays every hop
   ok  a step past the end stops
   ok  live index is the last hop
+  ok  live lock to 50 Hz
+  ok  live lock does not invent peak labels
+  ok  live 50 Hz track is loud
+  ok  live lock leaves the waterfall
+  ok  live lock back to 216.67 Hz
+  ok  live rejects a zero carrier
   ok  live spectrum falls when the carrier drops
   ok  live waterfall has every hop
   ok  live waterfall columns
@@ -112,6 +151,9 @@ pcm 1 kHz
   ok  live threshold matches
   ok  tone check still holds after streaming
 SMOKE PASSED
+
+WASM smoke (same peaks and edges, F9 report, 1 kHz WAV):
+
 tone 1000000 500000 0
 markers 6 edges 7 thr -636 floor -745
 M1 49.98 -5.9 
@@ -143,6 +185,30 @@ ON 8.99 9.54
   ok  seven edges
   ok  on intervals
   ok  off gaps
+  ok  wasm rejects carrier lock 0
+  ok  wasm locks carrier to 50 Hz
+  ok  wasm reports 50 Hz
+  ok  wasm lock keeps six peaks
+  ok  wasm peak frequencies unchanged
+  ok  wasm M1 is the locked carrier
+  ok  wasm lock leaves the waterfall
+  ok  wasm locks back to 216.67
+  ok  wasm pulses restored
+  ok  wasm threshold restored
+  ok  wasm M4 is the carrier again
+  ok  f9 full build
+  ok  f9 full mode
+  ok  f9 full fft
+  ok  f9 full stft
+  ok  f9 full M1-M6
+  ok  f9 marker levels are Ada's integers
+  ok  f9 M4 is the carrier
+  ok  f9 seven edges
+  ok  f9 edges are Ada's integers
+  ok  f9 floor is Ada's
+  ok  f9 carrier and threshold
+  ok  f9 user marker omitted when unset
+  ok  f9 event log is packaged
   ok  reject non-RIFF: This file is not a RIFF WAVE. Choose an uncompressed 16-bit PCM .wav.
   ok  reject IEEE float: This WAV is IEEE float, not 16-bit integer PCM. Export it as 16-bit PCM and try again.
   ok  reject 24-bit PCM: This WAV is 24-bit PCM. Only 16-bit PCM is accepted.
@@ -170,11 +236,28 @@ pcm M1 1000.00 -6.0
   ok  one carrier marker, no pulses
   ok  reported carrier is 1000 Hz
   ok  carrier level near -6 dBFS
+  ok  f9 wav mode
+  ok  f9 wav rate
+  ok  f9 wav settings
+  ok  f9 wav carrier
+  ok  f9 wav floor is Ada's
+  ok  f9 wav edges are Ada's
+  ok  f9 wav peaks are Ada's
+  ok  f9 wav user marker
   ok  on hop then off hop
   ok  live begin 309
   ok  live index before first hop
   ok  live clears markers
   ok  first hop
+  ok  f9 after demo scroll
+  ok  f9 live rate
+  ok  f9 live fft/stft
+  ok  f9 live has no averaged peaks yet
+  ok  f9 live frame count while scrolling
+  ok  f9 live edges are Ada's
+  ok  f9 live floor is Ada's unset value
+  ok  f9 live user marker is Ada's
+  ok  f9 live carrier is Ada's
   ok  live stops after the last hop
   ok  live spectrum falls when the carrier drops
   ok  live waterfall shape
@@ -184,4 +267,15 @@ pcm M1 1000.00 -6.0
   ok  live edges
   ok  live threshold
   ok  tone still ok
+  ok  fresh session is clean
+  ok  unclean session is offered on the next load
+  ok  last events survive
+  ok  unclean log has no clean exit
+  ok  clean exit stays clean
+  ok  event log stays bounded
+  ok  visible Feedback control
+  ok  F9 downloads the report
+  ok  page packages Ada through feedbackReport
+  ok  unclean session offers the last events
+  ok  build id is filled at embed time
 WASM SMOKE PASSED
